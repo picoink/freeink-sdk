@@ -324,11 +324,10 @@ void InputManager::beginAsync(const uint8_t taskPriority, const uint32_t pollMs,
     deleteAsyncQueues();
     return;
   }
-  _asyncStop.store(false);
-  _asyncStopped.store(false);
+  _asyncState.store(1);
   if (xTaskCreate(asyncTaskTrampoline, "fi_input", 4096, this, taskPriority, &_asyncTask) != pdTRUE) {
     _asyncTask = nullptr;
-    _asyncStopped.store(true);
+    _asyncState.store(0);
     deleteAsyncQueues();
   }
 }
@@ -343,10 +342,14 @@ void InputManager::deleteAsyncQueues() {
 
 bool InputManager::endAsync(uint32_t timeoutMs) {
   if (!_asyncTask) return true;
-  _asyncStop.store(true);
+  _asyncState.store(2);
   const auto start = millis();
-  while (!_asyncStopped.load()) {
-    if (millis() - start >= timeoutMs) return false;
+  while (_asyncState.load() != 0) {
+    if (millis() - start >= timeoutMs) {
+      uint8_t stopping = 2;
+      if (_asyncState.compare_exchange_strong(stopping, 1)) return false;
+      break;  // Worker acknowledged at the timeout boundary; cleanup is safe.
+    }
     delay(1);
   }
   _asyncTask = nullptr;
@@ -365,7 +368,9 @@ void InputManager::asyncTaskTrampoline(void* self) {
 
 void InputManager::asyncPoll() {
   static const uint8_t kButtons[] = {BTN_BACK, BTN_CONFIRM, BTN_LEFT, BTN_RIGHT, BTN_UP, BTN_DOWN, BTN_POWER};
-  while (!_asyncStop.load()) {
+  for (;;) {
+    uint8_t stopping = 2;
+    if (_asyncState.compare_exchange_strong(stopping, 0)) return;  // No object access after acknowledgement.
     update();
     if (wasHomeKeyTapped() || wasHomeKeyLongPressed()) {
       const bool longPress = wasHomeKeyLongPressed();
@@ -400,7 +405,6 @@ void InputManager::asyncPoll() {
     }
     vTaskDelay(pdMS_TO_TICKS(_asyncPollMs));
   }
-  _asyncStopped.store(true);  // No object/queue access after this acknowledgement.
 }
 
 bool InputManager::popPress(uint8_t& button) {

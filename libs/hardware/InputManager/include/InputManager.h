@@ -353,8 +353,9 @@ class InputManager {
   };
   QueueHandle_t _asyncMultiTouchPinchQueue = nullptr;
   TaskHandle_t _asyncTask = nullptr;
-  std::atomic<bool> _asyncStop{false};
-  std::atomic<bool> _asyncStopped{true};
+  // 0 stopped, 1 running, 2 stop requested. CAS makes timeout cancellation
+  // race-free with the worker acknowledgement.
+  std::atomic<uint8_t> _asyncState{0};
   void deleteAsyncQueues();
   uint32_t _asyncPollMs = 15;
   static void asyncTaskTrampoline(void* self);

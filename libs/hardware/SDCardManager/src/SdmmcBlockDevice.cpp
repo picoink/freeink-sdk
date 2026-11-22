@@ -13,9 +13,23 @@
 #include "sdmmc_cmd.h"
 
 namespace freeink {
+#if FREEINK_MCU_S31
+namespace {
+// IDF 6.1's multi-block recovery may replace the original write error with
+// ACMD22's success. Latch that error at the host boundary (no framework patch).
+thread_local bool writeTransferFailed = false;
+esp_err_t checkedTransaction(int slot, sdmmc_command_t* command) {
+  const esp_err_t result = sdmmc_host_do_transaction(slot, command);
+  if ((command->opcode == 24 || command->opcode == 25) &&
+      (result != ESP_OK || command->error != ESP_OK)) writeTransferFailed = true;
+  return result;
+}
+}
+#endif
 
 bool SdmmcBlockDevice::begin(const BoardConfig::SdmmcPins& pins) {
   if (pins.busWidth == 0) return false;
+  if (_card) return true;
   // The sleep path may hold the bus pads (Picco); a held pad ignores the slot setup.
   for (const int8_t pin : {pins.clk, pins.cmd, pins.d0, pins.d1, pins.d2, pins.d3}) {
     if (pin >= 0) gpio_hold_dis(static_cast<gpio_num_t>(pin));
@@ -49,6 +63,9 @@ bool SdmmcBlockDevice::begin(const BoardConfig::SdmmcPins& pins) {
   // only, and the data clock at 40 MHz. The read timeouts we chased earlier were a
   // mount-sequencing problem, not a clock-margin one — see the retry loop below.
   sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+#if FREEINK_MCU_S31
+  host.do_transaction = checkedTransaction;
+#endif
   host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;  // 40 MHz (SDMMC_FREQ_DEFAULT is 20 MHz)
 
   // Slot pin map. The ESP32-S3 routes SDMMC through the GPIO matrix, so the data
@@ -75,7 +92,7 @@ bool SdmmcBlockDevice::begin(const BoardConfig::SdmmcPins& pins) {
   // fine without it — and it deviated from the OEM (slot flag only), a suspected
   // cause of "no card in" on newer socket revisions. Removed.
 
-  auto* card = static_cast<sdmmc_card_t*>(malloc(sizeof(sdmmc_card_t)));
+  auto* card = static_cast<sdmmc_card_t*>(calloc(1, sizeof(sdmmc_card_t)));
   if (!card) {
     sdmmc_host_deinit();
     return false;
@@ -95,8 +112,8 @@ bool SdmmcBlockDevice::begin(const BoardConfig::SdmmcPins& pins) {
   // live in PSRAM / at an unaligned address, while native SDMMC requires an
   // internal-RAM DMA buffer. Limiting each transfer to eight sectors keeps the
   // buffer bounded at 4 KiB and avoids heap churn in the USB-MSC callbacks.
-  _dmaBuffer = static_cast<uint8_t*>(heap_caps_malloc(kSectorSize * kMaxTransferSectors,
-                                                      MALLOC_CAP_DMA | MALLOC_CAP_8BIT));
+  _dmaBuffer = static_cast<uint8_t*>(heap_caps_aligned_alloc(64, kSectorSize * kMaxTransferSectors,
+                                                      MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   if (!_dmaBuffer) {
     free(card);
     sdmmc_host_deinit();
@@ -119,9 +136,14 @@ bool SdmmcBlockDevice::begin(const BoardConfig::SdmmcPins& pins) {
     } else if (sdPwr >= 0) {
       digitalWrite(sdPwr, BoardConfig::ACTIVE.sd.powerActiveHigh ? HIGH : LOW);  // keep the rail on
     }
+    memset(card, 0, sizeof(*card));
     esp_err_t e = sdmmc_card_init(&host, card);
+#if FREEINK_MCU_S31
+    if (e != ESP_OK) {
+#else
     if (e != ESP_OK && card->csd.capacity == 0) {
-      mountErr = e;  // failed before CSD — nothing to read; power-cycle and retry
+#endif
+      mountErr = e;  // initialization failed; retry before publishing the card
       continue;
     }
     // CSD is valid (capacity known); prove real block I/O before committing.
@@ -159,7 +181,7 @@ void SdmmcBlockDevice::end() {
 // (PSRAM / arbitrary alignment), which makes sdmmc_read/write_sectors fail. Bounce
 // through a DMA-capable buffer. (heap_caps_aligned_alloc via MALLOC_CAP_DMA.)
 bool SdmmcBlockDevice::readSectors(Sector_t sector, uint8_t* dst, size_t ns) {
-  if (!_card || !_dmaBuffer || !dst || ns == 0) return false;
+  if (!_card || !_dmaBuffer || !dst || ns == 0 || sector >= sectorCount() || ns > sectorCount() - sector) return false;
   while (ns > 0) {
     const size_t count = ns > kMaxTransferSectors ? kMaxTransferSectors : ns;
     const size_t bytes = count * kSectorSize;
@@ -173,12 +195,18 @@ bool SdmmcBlockDevice::readSectors(Sector_t sector, uint8_t* dst, size_t ns) {
 }
 
 bool SdmmcBlockDevice::writeSectors(Sector_t sector, const uint8_t* src, size_t ns) {
-  if (!_card || !_dmaBuffer || !src || ns == 0) return false;
+  if (!_card || !_dmaBuffer || !src || ns == 0 || sector >= sectorCount() || ns > sectorCount() - sector) return false;
   while (ns > 0) {
     const size_t count = ns > kMaxTransferSectors ? kMaxTransferSectors : ns;
     const size_t bytes = count * kSectorSize;
     memcpy(_dmaBuffer, src, bytes);
+#if FREEINK_MCU_S31
+    writeTransferFailed = false;
+#endif
     if (sdmmc_write_sectors(static_cast<sdmmc_card_t*>(_card), _dmaBuffer, sector, count) != ESP_OK) return false;
+#if FREEINK_MCU_S31
+    if (writeTransferFailed) return false;
+#endif
     sector += count;
     src += bytes;
     ns -= count;

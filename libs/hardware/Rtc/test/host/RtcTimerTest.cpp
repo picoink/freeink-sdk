@@ -89,6 +89,13 @@ int main() {
   assert(!rtc.readWakeTimer(fired) && !fired);
   reset();
   BoardConfig::ACTIVE.sensors.rtcType = BoardConfig::RtcType::Pcf8563;
+  Rtc::DateTime invalid{2026, 2, 30, 0, 0, 0, 0};
+  assert(!rtc.set(invalid));
+  regs[0x32][0] = 0x20;
+  assert(rtc.set(expected) && !(regs[0x32][0] & 0x20) && rtc.now(time));
+  regs[0x32][0] = 0x20;
+  assert(!rtc.now(time));
+  regs[0x32][0] = 0;
   regs[0x32][1] = 0x08; // Alarm flag must survive timer operations.
   assert(!rtc.armWakeTimer(0) && !rtc.armWakeTimer(15301));
   for (const uint32_t seconds : {1U, 60U, 255U, 256U, 15300U}) {

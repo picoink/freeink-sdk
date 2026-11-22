@@ -49,6 +49,13 @@ constexpr uint8_t RX8130_BACKUP_ONLY = 0x01;
 constexpr uint8_t RX8130_CLEAR_VLF = 0xBD;
 constexpr uint8_t RX8130_CLEAR_TF = 0xAF;  // W0C: preserve the other flags.
 
+bool validDate(const Rtc::DateTime& dt) {
+  if (dt.year < 1900 || dt.year > 2099 || dt.month < 1 || dt.month > 12 || dt.day < 1 ||
+      dt.hour > 23 || dt.minute > 59 || dt.second > 59 || dt.weekday > 6) return false;
+  constexpr uint8_t days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  const bool leap = dt.year % 4 == 0 && (dt.year % 100 != 0 || dt.year % 400 == 0);
+  return dt.day <= days[dt.month - 1] + (dt.month == 2 && leap);
+}
 bool g_wireReady[2] = {false, false};
 TwoWire& sensorWire() {
   const auto& s = BoardConfig::ACTIVE.sensors;
@@ -159,7 +166,8 @@ bool Rtc::now(DateTime& out) {
       out.month = bcdToDec(raw[5] & 0x1FU);
       const uint8_t yy = bcdToDec(raw[6]);
       out.year = (raw[5] & 0x80U) ? static_cast<uint16_t>(1900 + yy) : static_cast<uint16_t>(2000 + yy);
-      return true;
+      uint8_t control = 0;
+      return validDate(out) && readRegs(addr, 0x00, &control, 1) && !(control & 0xA8);
     }
     case BoardConfig::RtcType::Pcf85063: {
       if (!readRegs(addr, PCF85063_REG_TIME, raw, sizeof(raw))) return false;
@@ -218,6 +226,7 @@ bool Rtc::now(DateTime& out) {
 }
 
 bool Rtc::set(const DateTime& dt) {
+  if (!validDate(dt)) return false;
   const freeink::I2cBusLock busLock;  // direct transfers below, not only helpers
   const uint8_t addr = BoardConfig::ACTIVE.sensors.rtcAddr;
   if (!begun_ || addr == 0) return false;
@@ -225,7 +234,7 @@ bool Rtc::set(const DateTime& dt) {
   const uint8_t centuryBit = dt.year < 2000 ? 0x80U : 0x00U;
   ensureWire();
   auto& wire = sensorWire();
-  if (s.rtcType == BoardConfig::RtcType::None) return false;
+  if (s.rtcType == BoardConfig::RtcType::None || (s.rtcType != BoardConfig::RtcType::Pcf8563 && dt.year < 2000)) return false;
   if (s.rtcType == BoardConfig::RtcType::Rx8130) {
     uint8_t control = 0;
     if (!readRegs(addr, RX8130_REG_CONTROL0, &control, 1) ||
@@ -274,6 +283,10 @@ bool Rtc::set(const DateTime& dt) {
   }
   wire.write(decToBcd(static_cast<uint8_t>(dt.year % 100)));
   if (wire.endTransmission() != 0) return false;
+  if (s.rtcType == BoardConfig::RtcType::Pcf8563) {
+    uint8_t control = 0;
+    return readRegs(addr, 0x00, &control, 1) && writeReg(addr, 0x00, control & ~0xA8);
+  }
   if (s.rtcType == BoardConfig::RtcType::Ds3231) {
     uint8_t status = 0;
     if (readRegs(addr, DS3231_REG_STATUS, &status, 1)) {

@@ -178,3 +178,21 @@ sh libs/network/JsonSax/test/host/run.sh
 
 Checks optional bounded string prefixes, unchanged default overflow handling,
 continued parsing after long strings, and rejection of oversized keys under ASan/UBSan.
+
+## Metalio Plus integration regressions
+
+```sh
+sh libs/hardware/BoardConfig/test/host/run_metalio_plus.sh
+sh libs/hardware/InputManager/test/host/run_async.sh
+sh libs/hardware/AudioManager/test/host/run_metalio.sh
+python3 libs/hardware/Rtc/test/host/run.py
+sh libs/hardware/SDCardManager/test/host/run_native.sh
+sh libs/hardware/UsbMassStorage/test/host/run.sh
+```
+
+The async input and USB tests run production worker/callback code on real host
+threads. The native SDMMC model deliberately hides a write error after a failed
+transaction, checking that the adapter still reports failure. BatteryMonitor's
+standard suite also includes CX25601N setup, quantization, status, recharge and
+initialization fault injection. All of these complement, rather than replace,
+the consumer build and physical board checks.

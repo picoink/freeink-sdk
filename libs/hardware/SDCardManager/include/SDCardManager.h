@@ -100,11 +100,12 @@ class SDCardManager {
   // float the bus pads so their pull-ups stop back-feeding the card's VDD net
   // through sleep. Idempotent; call only after all file users have stopped. A
   // deep-sleep wake resets the MCU and remounts through begin().
-  void shutdown();
+  // Returns false if filesystem sync fails; the mounted card stays owned by the reader.
+  bool shutdown();
 #else
   // SPI/SdFat boards: sleep either cuts power entirely (C3 Xteink) or gates the
   // SD rail in powerDownRailsForSleep(); there is no host to stop.
-  void shutdown() {}
+  bool shutdown() { return true; }
 #endif
 
  static SDCardManager& getInstance() { return instance; }

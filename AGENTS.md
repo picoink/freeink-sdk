@@ -9,3 +9,5 @@ before calling any of them done.
 - **New device (any)**: see "Adding a new device" in [README.md](README.md).
 - **Host tests**: [docs/testing.md](docs/testing.md). Run the suites for every
   library you touched, plus the suites that compile `BoardConfig.h` when you edit it.
+
+- **Branches and commits**: use `feature/` for feature branches, never `codex/`; write commit subjects and bodies in English.
