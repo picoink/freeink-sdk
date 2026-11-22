@@ -37,3 +37,21 @@ Build the consumer, then run `ctest --test-dir simulator/.build/fast
 path containment, persisted preferences, input queue edges and the production
 UI transform in all four rotations. Existing library host suites remain required
 when changing those libraries. Hardware validation is recorded separately.
+
+## Optional resource model
+
+The consumer's `PICO_STRESS` build selects `MemoryStress.cpp`; normal builds use
+`Memory.cpp` and do not intercept C/C++ allocation or instrument CPU work.
+Resource settings are supplied before firmware setup. Internal and PSRAM arenas
+have separate capacities, aligned blocks, coalescing free holes, failure
+injection and peak/largest-free-block statistics. Thread-local `HostScope`
+excludes native presentation, filesystem bookkeeping and protocol allocations.
+On macOS executable allocation symbols use a raw malloc-zone path; Linux uses
+linker wrapping. Compiler coverage checkpoints slow actual application/book/font
+work using thread CPU time. This is a pressure model, not instruction emulation.
+
+`host_resources` exercises both C and C++ allocations, capability constraints,
+fragmentation/coalescing, realloc failure preservation, one-shot failures and
+actual instrumented compute. Sanitized builds poison arena holes and block guards.
+Static objects and omitted driver allocations need an explicit reserved budget;
+MCU stack size and ABI differences are not reproduced by the native process.
