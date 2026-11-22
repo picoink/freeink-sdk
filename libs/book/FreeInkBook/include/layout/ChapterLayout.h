@@ -192,8 +192,11 @@ class ChapterLayoutSession {
   // Feeds the parse until at least `minNewPages` more pages were delivered to
   // the sink or the chapter ends (granularity is one input chunk, so it can
   // overshoot by a page). On the final step the layout tail is flushed and
-  // done() becomes true. Returns Ok on progress, or the failure status.
-  BookStatus step(uint32_t minNewPages);
+  // done() becomes true. maxInputChunks optionally bounds input work even
+  // when no new page is ready, allowing UI consumers to yield between chunks.
+  // It is not a wall-clock deadline: one paragraph may span several chunks.
+  // Returns Ok on progress, or the failure status.
+  BookStatus step(uint32_t minNewPages, uint32_t maxInputChunks = UINT32_MAX);
 
   bool done() const { return state_ == State::Done; }
   bool active() const { return state_ == State::Parsing; }

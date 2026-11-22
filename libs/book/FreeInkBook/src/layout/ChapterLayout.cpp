@@ -1991,7 +1991,7 @@ BookStatus ChapterLayoutSession::feedPlainText(bool& atEnd) {
   return BookStatus::Ok;
 }
 
-BookStatus ChapterLayoutSession::step(uint32_t minNewPages) {
+BookStatus ChapterLayoutSession::step(uint32_t minNewPages, uint32_t maxInputChunks) {
   if (state_ == State::Done) return BookStatus::Ok;
   if (state_ != State::Parsing) return BookStatus::Unsupported;
   auto* engine = static_cast<LayoutEngine*>(engine_);
@@ -2000,8 +2000,10 @@ BookStatus ChapterLayoutSession::step(uint32_t minNewPages) {
   const uint32_t startPages = counting->pages();
   bool atEnd = false;
   BookStatus status = BookStatus::Ok;
-  while (!atEnd && !engine->stopParse && counting->pages() - startPages < minNewPages) {
+  uint32_t chunks = 0;
+  while (!atEnd && !engine->stopParse && counting->pages() - startPages < minNewPages && chunks < maxInputChunks) {
     status = plainSource_ ? feedPlainText(atEnd) : sax_.feedChunk(&atEnd);
+    ++chunks;
     if (status != BookStatus::Ok) break;
   }
   if (status == BookStatus::Ok && (atEnd || engine->stopParse)) {

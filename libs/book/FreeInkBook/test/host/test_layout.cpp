@@ -317,8 +317,8 @@ void testChapterLayoutSession() {
   }
   CHECK(refPages > 50);  // the fixture really is a big chapter
 
-  // Stepped: 4 pages per step; identical output, genuinely incremental.
-  {
+  // Page budgets and bounded input work both preserve one-shot output.
+  for (uint32_t chunkBudget : {UINT32_MAX, 1u}) {
     OpenedBook opened;
     CHECK(opened.open("minimal.epub"));
     const ZipEntry* entry = opened.book.zip().find("OEBPS/text/ch2.xhtml");
@@ -331,8 +331,9 @@ void testChapterLayoutSession() {
     uint32_t steps = 0;
     uint64_t lastConsumed = 0;
     while (!session.done()) {
-      CHECK_EQ(static_cast<int>(session.step(4)), static_cast<int>(BookStatus::Ok));
+      CHECK_EQ(static_cast<int>(session.step(4, chunkBudget)), static_cast<int>(BookStatus::Ok));
       CHECK(session.bytesConsumed() >= lastConsumed);  // monotonic input progress
+      if (chunkBudget == 1) CHECK(session.bytesConsumed() - lastConsumed <= 2048);
       lastConsumed = session.bytesConsumed();
       ++steps;
       CHECK(steps < 100000u);  // no livelock
@@ -1432,14 +1433,17 @@ void testIncrementalPlainText() {
   CHECK(session.beginPlainText(source, params, arena, stepped) == BookStatus::Ok);
   CHECK_EQ(session.bytesTotal(), source.size());
   CHECK_EQ(session.bytesConsumed(), 0u);
+  CHECK(session.step(1, 0) == BookStatus::Ok);
+  CHECK_EQ(session.bytesConsumed(), 0u);
   CHECK(session.step(1) == BookStatus::Ok);
   CHECK(!session.done() && session.pagesEmitted() > 0);
   CHECK(session.bytesConsumed() < source.size() / 4); // First pages precede reading the whole file.
   unsigned steps = 1;
   uint64_t consumed = session.bytesConsumed();
   while (session.active() && steps++ < 10000) {
-    CHECK(session.step(2) == BookStatus::Ok);
+    CHECK(session.step(2, 1) == BookStatus::Ok);
     CHECK(session.bytesConsumed() >= consumed);
+    CHECK(session.bytesConsumed() - consumed <= 4096);
     consumed = session.bytesConsumed();
   }
   CHECK(session.done() && steps > 5 && steps < 10000);

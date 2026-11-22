@@ -33,7 +33,9 @@ temporary directory.
 
 The layout suite checks incremental plain-text output against one-shot layout,
 including early pages, byte progress, I/O failures, abort/restart, and limited
-arenas. The JPEG symbol test links dummy platform `jd_prepare` / `jd_decomp`
+arenas. Both EPUB and TXT also check bounded input chunks against one-shot
+output; an idle UI step can yield without waiting for a complete page.
+The JPEG symbol test links dummy platform `jd_prepare` / `jd_decomp`
 symbols beside the bundled decoder to prevent accidental use of an incompatible
 ESP ROM implementation. The consumer ELF and physical board still need checking
 because host tests do not use the ESP ROM linker script.
