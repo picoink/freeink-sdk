@@ -1402,6 +1402,70 @@ void testPlainText() {
   CHECK_EQ(scratch.used(), 0u);
 }
 
+void testIncrementalPlainText() {
+  class TextSource : public BookSource {
+   public:
+    std::string text = "\xEF\xBB\xBF";
+    bool fail = false;
+    int32_t readAt(uint64_t offset, void* dst, uint32_t len) override {
+      if (fail) return -1;
+      if (offset >= text.size()) return 0;
+      if (len > text.size() - offset) len = text.size() - offset;
+      memcpy(dst, text.data() + offset, len);
+      return len;
+    }
+    uint64_t size() const override { return text.size(); }
+  } source;
+  for (int i = 0; i < 3000; ++i) source.text += "First line of a paragraph.\nSecond line flows as words.\r\n\r\n";
+  source.text += "The final paragraph has no newline.";
+  FakeFont font;
+  const auto params = stickyParams(font);
+  Arena arena(scratchBuf, sizeof(scratchBuf));
+  CollectSink reference(params, font);
+  uint32_t pages = 0, chars = 0;
+  CHECK(ChapterLayout::layoutPlainText(source, params, arena, reference, &pages, &chars) == BookStatus::Ok);
+  CHECK(pages > 100);
+  CHECK(strstr(reference.text, "First line of a paragraph. Second line") != nullptr);
+  CHECK(strstr(reference.text, "final paragraph") != nullptr);
+  CollectSink stepped(params, font);
+  ChapterLayoutSession session;
+  CHECK(session.beginPlainText(source, params, arena, stepped) == BookStatus::Ok);
+  CHECK_EQ(session.bytesTotal(), source.size());
+  CHECK_EQ(session.bytesConsumed(), 0u);
+  CHECK(session.step(1) == BookStatus::Ok);
+  CHECK(!session.done() && session.pagesEmitted() > 0);
+  CHECK(session.bytesConsumed() < source.size() / 4); // First pages precede reading the whole file.
+  unsigned steps = 1;
+  uint64_t consumed = session.bytesConsumed();
+  while (session.active() && steps++ < 10000) {
+    CHECK(session.step(2) == BookStatus::Ok);
+    CHECK(session.bytesConsumed() >= consumed);
+    consumed = session.bytesConsumed();
+  }
+  CHECK(session.done() && steps > 5 && steps < 10000);
+  CHECK_EQ(session.pagesEmitted(), pages);
+  CHECK_EQ(session.totalChars(), chars);
+  CHECK_EQ(session.bytesConsumed(), source.size());
+  CHECK(strcmp(reference.text, stepped.text) == 0);
+  CHECK_EQ(stepped.geometryViolations, 0);
+  session.abort(); arena.reset();
+  CHECK_EQ(session.bytesConsumed(), 0u);
+  CHECK(!session.active());
+  CollectSink interrupted(params, font);
+  CHECK(session.beginPlainText(source, params, arena, interrupted) == BookStatus::Ok);
+  CHECK(session.step(1) == BookStatus::Ok);
+  source.fail = true;
+  CHECK(session.step(1) == BookStatus::IoError);
+  CHECK(!session.active() && !session.done());
+  session.abort(); arena.reset(); source.fail = false;
+  CHECK(session.beginPlainText(source, params, arena, interrupted) == BookStatus::Ok);
+  session.abort(); arena.reset(); // An early close is safe before any input was consumed.
+  uint8_t tiny[8]; Arena insufficient(tiny, sizeof(tiny));
+  CHECK(session.beginPlainText(source, params, insufficient, interrupted) == BookStatus::OutOfMemory);
+  CHECK(!session.active());
+  session.abort();
+}
+
 // Progressive JPEG (SOF2): TJpgDec cannot decode it, so the renderer's
 // DC-only path decodes the first scan (block averages = a correct 1/8-scale
 // image) and bilinear-resamples to the placement box. Coarse, never blank.
@@ -1959,6 +2023,7 @@ int main(int argc, char** argv) {
   testImagePrescanMemory();
   testCjk();
   testPlainText();
+  testIncrementalPlainText();
   testBidi();
   testArabicShaping();
   testKoreanSpacing();
