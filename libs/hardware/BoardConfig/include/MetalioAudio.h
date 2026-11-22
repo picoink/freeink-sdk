@@ -45,7 +45,8 @@ inline void destroyAudioBus() {
   b.uart.end();
 #if FREEINK_DEVICE_METALIO_EINK4_PLUS
   metalio_plus::setAmplifier(false);
-  metalio_plus::setOutput(metalio_plus::PIN_BT_AMP_POWER, false);
+  // P1.4 also supplies the panel PMIC on Plus hardware. Only board sleep
+  // may cut this rail after the display has powered down.
 #endif
 }
 

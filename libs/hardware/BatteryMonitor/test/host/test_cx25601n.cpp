@@ -50,6 +50,10 @@ int main() {
   Charger::Status status;
   regs[0x6B][0x1E] = 0x13;
   assert(Charger::readStatus(status) && status.charging() && status.externalPower());
+  regs[0x6B][0x1E] = 0x10; // Real board: charging, but DP/DM classification is zero.
+  assert(Charger::readStatus(status) && status.charging() && status.externalPower() && status.externalPowerKnown());
+  regs[0x6B][0x1E] = 0;
+  assert(Charger::readStatus(status) && !status.externalPowerKnown());
   regs[0x6B][0x1E] = 7;
   assert(Charger::readStatus(status) && !status.externalPower());
   assert(charger.service(3000, true, 0, true) == Charger::ServiceResult::Ok); // OTG is not an unplugged cell.

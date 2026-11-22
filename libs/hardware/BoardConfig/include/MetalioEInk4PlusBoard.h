@@ -31,7 +31,7 @@ constexpr uint8_t PIN_VOLUME_UP = 8;       // P1.0, input, active low
 constexpr uint8_t PIN_VOLUME_DOWN = 9;     // P1.1, input, active low
 constexpr uint8_t PIN_TOUCH_RESET = 10;    // P1.2, high = powered (shared with 4G/camera reset)
 constexpr uint8_t PIN_POWER_PULSE = 11;    // P1.3, shutdown pulse to the power IC, idles low
-constexpr uint8_t PIN_BT_AMP_POWER = 12;   // P1.4, BT audio + amplifier rail, active high
+constexpr uint8_t PIN_BT_AMP_POWER = 12;   // P1.4, shared audio/panel PMIC rail, active high
 constexpr uint8_t PIN_RTC_INT = 14;        // P1.6, input
 constexpr uint8_t PIN_POWER_KEY = 15;      // P1.7, input, active low
 
@@ -114,7 +114,8 @@ inline bool ensureBooted(uint32_t waitMs = 0) {
   for (;;) {
     {
       const freeink::I2cBusLock busLock;
-      if (Wire.begin(SDA_PIN, SCL_PIN, 400000)) {
+      // Match the vendor shared-bus speed, including TPS65185 transactions.
+      if (Wire.begin(SDA_PIN, SCL_PIN, 100000)) {
         Wire.setTimeOut(10);
         if (readRegister(0, inputLevels)) break;
       }

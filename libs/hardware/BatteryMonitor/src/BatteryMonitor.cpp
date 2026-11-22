@@ -818,9 +818,9 @@ BatteryMonitor::Status BatteryMonitor::readStatus() const {
     status.charging = charging;
 #if FREEINK_DEVICE_METALIO_EINK4_PLUS
     freeink::Cx25601n::Status charger;
-    status.externalPowerKnown = freeink::Cx25601n::readStatus(charger);
-    status.chargingKnown = status.externalPowerKnown;
-    if (status.externalPowerKnown) {
+    status.chargingKnown = freeink::Cx25601n::readStatus(charger);
+    status.externalPowerKnown = status.chargingKnown && charger.externalPowerKnown();
+    if (status.chargingKnown) {
       status.externalPower = charger.externalPower();
       status.charging = charger.charging();
     }
@@ -939,7 +939,7 @@ bool BatteryMonitor::isExternalPowerPresent(bool* known) const {
 #if FREEINK_DEVICE_METALIO_EINK4_PLUS
   freeink::Cx25601n::Status charger;
   const bool ok = freeink::Cx25601n::readStatus(charger);
-  if (known) *known = ok;
+  if (known) *known = ok && charger.externalPowerKnown();
   return ok && charger.externalPower();
 #endif
   bool observed = false;

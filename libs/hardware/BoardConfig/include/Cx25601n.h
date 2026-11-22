@@ -10,7 +10,10 @@ class Cx25601n {
   struct Status {
     uint8_t charge = 0, vbus = 0;
     bool charging() const { return charge != 0; }
-    bool externalPower() const { return vbus != 0 && vbus != 7; }
+    // DP/DM detection is disabled for USB data. On hardware, VBUS_STAT stays
+    // zero even while charging, so zero alone cannot prove an unplugged cable.
+    bool externalPower() const { return vbus != 7 && (vbus != 0 || charging()); }
+    bool externalPowerKnown() const { return vbus != 0 || charging(); }
   };
   enum class ServiceResult { Ok, IoError, ShutdownRequested };
 
