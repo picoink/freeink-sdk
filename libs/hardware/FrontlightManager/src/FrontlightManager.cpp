@@ -20,7 +20,13 @@
 // compiled out, and esp_log writes to the IDF UART console rather than the
 // firmware's Serial stream the monitor reads. LOG_INF routes through logPrintf
 // to the firmware Serial and the crash-report ring buffer.
+#if __has_include(<Logging.h>)
 #include <Logging.h>
+#else
+#include <esp32-hal-log.h>
+#define LOG_INF(tag, fmt, ...) log_i("%s: " fmt, tag, ##__VA_ARGS__)
+#define LOG_ERR(tag, fmt, ...) log_e("%s: " fmt, tag, ##__VA_ARGS__)
+#endif
 #if FREEINK_DEVICE_EEGO_A4
 #include <esp_mac.h>
 

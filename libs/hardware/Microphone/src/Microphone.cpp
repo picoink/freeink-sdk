@@ -8,7 +8,7 @@
 
 #include <driver/gpio.h>
 #include <driver/i2s_pdm.h>
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
 #include <MetalioAudio.h>
 #endif
 
@@ -25,7 +25,7 @@ void setMicPower(const BoardConfig::MicConfig& mic, bool on) {
 
 bool Microphone::begin(uint32_t sampleRate) {
   if (begun_) return sampleRate_ == sampleRate;
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (BoardConfig::ACTIVE.mic.input == BoardConfig::MicInput::MetalioModule) {
     if (sampleRate != metalio::AUDIO_RATE || !metalio::acquireAudio(this, true)) return false;
     if (!metalio::startAudio(this, true)) {
@@ -79,7 +79,7 @@ bool Microphone::begin(uint32_t sampleRate) {
 
 int Microphone::read(int16_t* dst, size_t maxSamples, uint32_t timeoutMs) {
   if (!begun_ || !rxChan_ || !dst || maxSamples == 0) return -1;
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (BoardConfig::ACTIVE.mic.input == BoardConfig::MicInput::MetalioModule) {
     // Bounded scratch space; callers can pump read() for larger recordings.
     int32_t slots[64];
@@ -102,7 +102,7 @@ int Microphone::read(int16_t* dst, size_t maxSamples, uint32_t timeoutMs) {
 }
 
 void Microphone::end() {
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (BoardConfig::ACTIVE.mic.input == BoardConfig::MicInput::MetalioModule) {
     metalio::releaseAudio(this, true);
     rxChan_ = nullptr;

@@ -17,6 +17,7 @@ class TwoWire {
  public:
   bool begin(int, int, uint32_t) { return true; }
   void setTimeOut(int) {}
+  bool end() { return true; }
   void beginTransmission(uint8_t addr) {
     addr_ = addr;
     tx_.clear();

@@ -3,6 +3,9 @@
 #include <Arduino.h>
 #include <initializer_list>  // BoardConfig.h range-for over the latch pins
 #include <BoardConfig.h>
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+#include <Cx25601n.h>
+#endif
 #include <I2cBusLock.h>
 #include <M5Pm1.h>
 #include <esp_idf_version.h>
@@ -813,6 +816,15 @@ BatteryMonitor::Status BatteryMonitor::readStatus() const {
     }
     status.chargingKnown = chargingKnown;
     status.charging = charging;
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+    freeink::Cx25601n::Status charger;
+    status.externalPowerKnown = freeink::Cx25601n::readStatus(charger);
+    status.chargingKnown = status.externalPowerKnown;
+    if (status.externalPowerKnown) {
+      status.externalPower = charger.externalPower();
+      status.charging = charger.charging();
+    }
+#endif
     return status;
   }
 #endif
@@ -888,6 +900,10 @@ double BatteryMonitor::readVolts() const {
 }
 
 bool BatteryMonitor::isCharging() const {
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  freeink::Cx25601n::Status charger;
+  return freeink::Cx25601n::readStatus(charger) && charger.charging();
+#endif
 #if FREEINK_BATTERY_I2C_GAUGE
   // Gauge boards: prefer a charger IC's status (BQ25896), else fall back to the
   // gauge's own Current() sign, so a board with a gauge but no charger IC (e.g.
@@ -920,6 +936,12 @@ bool BatteryMonitor::isCharging() const {
 }
 
 bool BatteryMonitor::isExternalPowerPresent(bool* known) const {
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  freeink::Cx25601n::Status charger;
+  const bool ok = freeink::Cx25601n::readStatus(charger);
+  if (known) *known = ok;
+  return ok && charger.externalPower();
+#endif
   bool observed = false;
 #if FREEINK_BATTERY_I2C_GAUGE
   const bool present = readChargerExternalPower(observed);

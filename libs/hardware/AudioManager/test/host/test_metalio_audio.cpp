@@ -18,6 +18,13 @@ int main() {
   assert(!acquireAudio(&speaker, false));
   assert(!audioBus().speaker && !audioBus().tx);
   uartFail = false;
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  for (const char* bad : {"", "ERROR\r\n", "SET MODE 10\r\n", "FAIL SET MODE 1\r\n"}) {
+    uartReply = bad;
+    assert(!acquireAudio(&speaker, false) && !audioBus().tx);
+  }
+  uartReply = "SET MODE 1\r\n";
+#endif
   failAllocation = true;
   assert(!acquireAudio(&speaker, false));
   assert(!audioBus().speaker && !audioBus().tx);
