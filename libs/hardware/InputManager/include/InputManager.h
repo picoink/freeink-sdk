@@ -15,6 +15,7 @@
 #include <freertos/task.h>
 
 #include <cstdint>
+#include <atomic>
 
 class InputManager {
  public:
@@ -264,6 +265,11 @@ class InputManager {
   // When async polling is active the app must NOT call update()/wasPressed()
   // itself; the task owns the edge state. Drain with popPress() instead.
   void beginAsync(uint8_t taskPriority = 2, uint32_t pollMs = 15, uint8_t queueLen = 32);
+  // Cooperatively stop between polls, never while the worker owns the I2C bus.
+  // On timeout the worker/queues remain owned; do not power down peripherals.
+  bool endAsync(uint32_t timeoutMs = 2000);
+  bool asyncRunning() const { return _asyncTask != nullptr; }
+  bool popHomeKey(bool& longPress);
 
   // Pop the next latched button index (BTN_*) into `button`. Returns false when
   // no press is pending (or async polling was never started).
@@ -320,6 +326,7 @@ class InputManager {
   static ButtonHook s_buttonHook;
 
   QueueHandle_t _asyncQueue = nullptr;
+  QueueHandle_t _asyncHomeQueue = nullptr;
   QueueHandle_t _asyncTapQueue = nullptr;
   QueueHandle_t _asyncSwipeQueue = nullptr;
   struct QueuedMultiTouchSwipe {
@@ -346,6 +353,9 @@ class InputManager {
   };
   QueueHandle_t _asyncMultiTouchPinchQueue = nullptr;
   TaskHandle_t _asyncTask = nullptr;
+  std::atomic<bool> _asyncStop{false};
+  std::atomic<bool> _asyncStopped{true};
+  void deleteAsyncQueues();
   uint32_t _asyncPollMs = 15;
   static void asyncTaskTrampoline(void* self);
   void asyncPoll();

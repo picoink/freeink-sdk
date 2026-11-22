@@ -72,6 +72,18 @@ int main() {
     Wire.failWriteReg = -1;
     assert(imu.begin() && imu.sleep());
   }
+  assert(imu.wake() && imu.configureMotionInterrupt(true));
+  assert(Wire.regs[0x19][0x22] == 0x40 && Wire.regs[0x19][0x25] == 3);
+  assert(Wire.regs[0x19][0x30] == 0x2A && Wire.regs[0x19][0x32] == 16);
+  bool motion = false;
+  Wire.regs[0x19][0x31] = 0x40;
+  assert(imu.readMotionInterrupt(motion) && motion);
+  assert(!imu.configureMotionInterrupt(true, 0));
+  Wire.failWriteReg = 0x32;
+  assert(!imu.configureMotionInterrupt(true) && Wire.regs[0x19][0x22] == 0);
+  Wire.failWriteReg = -1;
+  assert(imu.silenceInterrupt() && Wire.regs[0x19][0x20] == 0x10 && Wire.regs[0x19][0x25] == 0);
+  assert(!imu.read(sample) && imu.wake());
   // Wrong primary identity must not receive sensor writes; alternate SA0 address works.
   chip(0x19, 0x33); chip(0x18);
   Wire.regs[0x18][0x57] = 0x04;

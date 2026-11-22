@@ -38,7 +38,8 @@ class Rtc {
   // Sets the time. Returns false on I2C error.
   bool set(const DateTime& dt);
 
-  // RX8130 countdown only. Above 65535 seconds, round up to whole minutes.
+  // RX8130 (max 65535 minutes) and PCF8563 (max 255 minutes).
+  // Above the seconds counter limit, round up to whole minutes.
   // Requires a running, initialized clock and no other enabled RTC interrupt.
   bool armWakeTimer(uint32_t seconds);
   // Stops the countdown and clears only its event; verifies TE and TIE are off.

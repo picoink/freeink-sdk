@@ -34,7 +34,7 @@ struct AbortedSleepRecord {
 RTC_NOINIT_ATTR uint32_t abortedSleepMagic;
 RTC_NOINIT_ATTR AbortedSleepRecord abortedSleepRecord;
 
-void PowerManager::armWakeOnPins(uint64_t gpioMask, bool wakeLow) {
+bool PowerManager::armWakeOnPins(uint64_t gpioMask, bool wakeLow) {
 #if SOC_PM_SUPPORT_EXT1_WAKEUP
   // Xtensa (S3/S2, classic ESP32): RTC ext1. Pins must be RTC GPIOs.
   //
@@ -47,7 +47,7 @@ void PowerManager::armWakeOnPins(uint64_t gpioMask, bool wakeLow) {
 #else
   const esp_sleep_ext1_wakeup_mode_t lowMode = ESP_EXT1_WAKEUP_ANY_LOW;
 #endif
-  esp_sleep_enable_ext1_wakeup(gpioMask, wakeLow ? lowMode : ESP_EXT1_WAKEUP_ANY_HIGH);
+  if (esp_sleep_enable_ext1_wakeup(gpioMask, wakeLow ? lowMode : ESP_EXT1_WAKEUP_ANY_HIGH) != ESP_OK) return false;
   // ext1 hands each pad to the RTC domain for sleep, where the digital pull from
   // pinMode() does not apply and esp_sleep_config_gpio_isolate() floats the pad.
   // Set the idle-level pull in the RTC domain and keep that domain powered so it
@@ -68,19 +68,19 @@ void PowerManager::armWakeOnPins(uint64_t gpioMask, bool wakeLow) {
   }
 #elif SOC_GPIO_SUPPORT_DEEPSLEEP_WAKEUP
   // RISC-V (C3/C6/H2): the deep-sleep "gpio" wakeup source.
-  esp_deep_sleep_enable_gpio_wakeup(gpioMask, wakeLow ? ESP_GPIO_WAKEUP_GPIO_LOW : ESP_GPIO_WAKEUP_GPIO_HIGH);
+  if (esp_deep_sleep_enable_gpio_wakeup(gpioMask, wakeLow ? ESP_GPIO_WAKEUP_GPIO_LOW : ESP_GPIO_WAKEUP_GPIO_HIGH) != ESP_OK) return false;
 #else
 #error "FreeInk PowerManager: target has no supported deep-sleep GPIO wakeup source"
 #endif
+  return true;
 }
 
-bool PowerManager::armPowerButtonWakeup() {
+bool PowerManager::armPowerButtonWakeup(bool rtcWake) {
 #if FREEINK_DEVICE_METALIO_EINK4_PLUS
   // The power key is expander P1.7; it wakes through the expander INT (GPIO2).
   if (BoardConfig::isMetalioEInk4Plus()) {
-    if (!metalio_plus::prepareWakeOnPowerKey()) return false;
-    armWakeOnPins(1ULL << metalio_plus::EXPANDER_INT_GPIO, /*wakeLow=*/true);
-    return true;
+    if (!metalio_plus::prepareWakeOnPowerKey(rtcWake)) return false;
+    return armWakeOnPins(1ULL << metalio_plus::EXPANDER_INT_GPIO, /*wakeLow=*/true);
   }
 #endif
   const int8_t pin = powerPin();
@@ -89,8 +89,7 @@ bool PowerManager::armPowerButtonWakeup() {
 
   // Hold the idle level with the opposite pull so the line is defined in sleep.
   pinMode(pin, activeHigh ? INPUT_PULLDOWN : INPUT_PULLUP);
-  armWakeOnPins(1ULL << pin, /*wakeLow=*/!activeHigh);
-  return true;
+  return armWakeOnPins(1ULL << pin, /*wakeLow=*/!activeHigh);
 }
 
 void PowerManager::waitForPowerButtonRelease() {
@@ -212,7 +211,7 @@ void PowerManager::deepSleep() {
 
 void PowerManager::deepSleepUntilPowerButton() {
   waitForPowerButtonRelease();
-  armPowerButtonWakeup();
+  if (!armPowerButtonWakeup()) esp_restart();  // Never enter sleep without a verified wake route.
   deepSleep();
 }
 

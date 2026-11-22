@@ -310,7 +310,7 @@ bool InputManager::prepareForDeepSleep() {
 
 void InputManager::beginAsync(const uint8_t taskPriority, const uint32_t pollMs, const uint8_t queueLen) {
   if (_asyncTask) return;  // already running
-  _asyncPollMs = pollMs;
+  _asyncPollMs = pollMs ? pollMs : 1;
   _asyncQueue = xQueueCreate(queueLen, sizeof(uint8_t));
   if (!_asyncQueue) return;
   _asyncTapQueue = xQueueCreate(queueLen, sizeof(float) * 2);
@@ -318,15 +318,59 @@ void InputManager::beginAsync(const uint8_t taskPriority, const uint32_t pollMs,
   _asyncMultiTouchSwipeQueue = xQueueCreate(queueLen, sizeof(QueuedMultiTouchSwipe));
   _asyncMultiTouchRotationQueue = xQueueCreate(queueLen, sizeof(QueuedMultiTouchRotation));
   _asyncMultiTouchPinchQueue = xQueueCreate(queueLen, sizeof(QueuedMultiTouchPinch));
-  xTaskCreate(asyncTaskTrampoline, "fi_input", 4096, this, taskPriority, &_asyncTask);
+  _asyncHomeQueue = xQueueCreate(queueLen, sizeof(bool));
+  if (!_asyncTapQueue || !_asyncSwipeQueue || !_asyncMultiTouchSwipeQueue ||
+      !_asyncMultiTouchRotationQueue || !_asyncMultiTouchPinchQueue || !_asyncHomeQueue) {
+    deleteAsyncQueues();
+    return;
+  }
+  _asyncStop.store(false);
+  _asyncStopped.store(false);
+  if (xTaskCreate(asyncTaskTrampoline, "fi_input", 4096, this, taskPriority, &_asyncTask) != pdTRUE) {
+    _asyncTask = nullptr;
+    _asyncStopped.store(true);
+    deleteAsyncQueues();
+  }
 }
 
-void InputManager::asyncTaskTrampoline(void* self) { static_cast<InputManager*>(self)->asyncPoll(); }
+void InputManager::deleteAsyncQueues() {
+  for (auto* queue : {&_asyncQueue, &_asyncHomeQueue, &_asyncTapQueue, &_asyncSwipeQueue,
+                     &_asyncMultiTouchSwipeQueue, &_asyncMultiTouchRotationQueue, &_asyncMultiTouchPinchQueue}) {
+    if (*queue) vQueueDelete(*queue);
+    *queue = nullptr;
+  }
+}
+
+bool InputManager::endAsync(uint32_t timeoutMs) {
+  if (!_asyncTask) return true;
+  _asyncStop.store(true);
+  const auto start = millis();
+  while (!_asyncStopped.load()) {
+    if (millis() - start >= timeoutMs) return false;
+    delay(1);
+  }
+  _asyncTask = nullptr;
+  deleteAsyncQueues();
+  return true;
+}
+
+bool InputManager::popHomeKey(bool& longPress) {
+  return _asyncHomeQueue && xQueueReceive(_asyncHomeQueue, &longPress, 0) == pdTRUE;
+}
+
+void InputManager::asyncTaskTrampoline(void* self) {
+  static_cast<InputManager*>(self)->asyncPoll();
+  vTaskDelete(nullptr);
+}
 
 void InputManager::asyncPoll() {
   static const uint8_t kButtons[] = {BTN_BACK, BTN_CONFIRM, BTN_LEFT, BTN_RIGHT, BTN_UP, BTN_DOWN, BTN_POWER};
-  for (;;) {
+  while (!_asyncStop.load()) {
     update();
+    if (wasHomeKeyTapped() || wasHomeKeyLongPressed()) {
+      const bool longPress = wasHomeKeyLongPressed();
+      xQueueSend(_asyncHomeQueue, &longPress, 0);
+    }
     for (const uint8_t b : kButtons) {
       if (wasPressed(b)) xQueueSend(_asyncQueue, &b, 0);
     }
@@ -356,6 +400,7 @@ void InputManager::asyncPoll() {
     }
     vTaskDelay(pdMS_TO_TICKS(_asyncPollMs));
   }
+  _asyncStopped.store(true);  // No object/queue access after this acknowledgement.
 }
 
 bool InputManager::popPress(uint8_t& button) {

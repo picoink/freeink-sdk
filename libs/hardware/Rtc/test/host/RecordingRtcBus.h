@@ -38,6 +38,8 @@ bool hostI2cWrite(uint8_t addr, const std::vector<uint8_t>& bytes) {
     if (addr == 0x32 && reg == 0x1D) {
       assert(!(value & 0x40));
       regs[addr][reg] &= value | 0x01;  // W0C; VBFF is read-only.
+    } else if (addr == 0x32 && BoardConfig::ACTIVE.sensors.rtcType == BoardConfig::RtcType::Pcf8563 && reg == 1) {
+      regs[addr][reg] = (value & ~0x0C) | (regs[addr][reg] & value & 0x0C);
     } else if (addr == 0x6E && reg == 0x05) {
       regs[addr][reg] &= value;
     } else {
