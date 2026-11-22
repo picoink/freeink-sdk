@@ -31,6 +31,13 @@ checks skip when those converters are unavailable. It builds layout tests for
 the default, SMALL, and LARGE memory profiles. Build outputs go under the system
 temporary directory.
 
+The layout suite checks incremental plain-text output against one-shot layout,
+including early pages, byte progress, I/O failures, abort/restart, and limited
+arenas. The JPEG symbol test links dummy platform `jd_prepare` / `jd_decomp`
+symbols beside the bundled decoder to prevent accidental use of an incompatible
+ESP ROM implementation. The consumer ELF and physical board still need checking
+because host tests do not use the ESP ROM linker script.
+
 ## Progressive JPEG
 
 ```sh
