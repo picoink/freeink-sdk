@@ -1,4 +1,7 @@
 #pragma once
+#ifdef FREEINK_HOST
+#include <HostRuntime.h>
+#endif
 
 // FreeInkApp: small runtime + screen builder for FreeInkUI.
 //
@@ -921,6 +924,10 @@ public:
   ActionEvent lastEvent() const { return lastEvent_; }
 
   ActionEvent render(const InputSnapshot &input = InputSnapshot{}) {
+#ifdef FREEINK_HOST
+    freeink::host::beginFrame();
+    freeink::host::runtime().orientation = static_cast<int>(device_.orientation);
+#endif
     lastRenderHint_ = refreshHint_;
     invalidated_ = false;
     refreshHint_ = RefreshHint::None;
@@ -947,6 +954,13 @@ public:
       screen_(screen, screenUser_);
     lastEvent_ = frame.finish();
     interactions_.publish();
+#ifdef FREEINK_HOST
+    for (size_t i = 0; i < interactions_.publishedCount(); ++i) {
+      const auto& h = interactions_.publishedData()[i];
+      freeink::host::hitPublished(h.rect.x, h.rect.y, h.rect.width, h.rect.height,
+                                h.action, h.value, h.state);
+    }
+#endif
     if (lastEvent_) {
       dispatch(lastEvent_);
       invalidate(RefreshHint::Fast);
