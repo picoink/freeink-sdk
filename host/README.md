@@ -55,3 +55,17 @@ fragmentation/coalescing, realloc failure preservation, one-shot failures and
 actual instrumented compute. Sanitized builds poison arena holes and block guards.
 Static objects and omitted driver allocations need an explicit reserved budget;
 MCU stack size and ABI differences are not reproduced by the native process.
+
+## Desktop input semantics
+
+The host backend models all seven Metalio Plus inputs separately: the three
+cover keys (HOME/PREV/NEXT), BOOT, volume up/down and power. Device levels and
+source ownership are merged before producing the firmware button edges. HOME
+emits a short event on release or one long event at 700 ms while held; cancelling
+a source does not manufacture a short HOME event. Physical power levels remain
+readable while firmware waits for release during sleep preparation. The SDL
+thread can safely update input while the firmware thread polls the queues.
+
+`host_input` checks these semantics independently of SDL, including overlapping
+sources and release after polling stops. Consumer SDL tests additionally verify
+the real event-filter coordinate path, keyboard aliases and focus cancellation.
