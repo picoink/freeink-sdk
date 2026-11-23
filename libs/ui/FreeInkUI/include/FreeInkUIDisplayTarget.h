@@ -68,10 +68,12 @@ class DisplayTarget final : public DrawTarget {
   bool setClipRect(Rect rect) override { clip_ = rect; return true; }
 
 
-  // Panel-native dimensions + explicit logical orientation.
+  // Panel-native dimensions + explicit logical orientation. The optional
+  // Gray8 target uses one byte per pixel and blends glyph coverage with the
+  // existing background. The default 1-bit output remains unchanged.
   DisplayTarget(uint8_t* framebuffer, int16_t panelWidth, int16_t panelHeight, int16_t panelWidthBytes,
-                Orientation orientation)
-      : fb_(framebuffer),
+                Orientation orientation, bool gray8 = false)
+      : gray8_(gray8), fb_(framebuffer),
         pw_(panelWidth),
         ph_(panelHeight),
         pwb_(panelWidthBytes),
@@ -272,6 +274,7 @@ class DisplayTarget final : public DrawTarget {
 
  private:
   Rect clip_{0, 0, 32767, 32767};
+  bool gray8_ = false;
   uint8_t* fb_;
   int16_t pw_;   // panel-native width (px)
   int16_t ph_;   // panel-native height (px)
@@ -329,7 +332,7 @@ class DisplayTarget final : public DrawTarget {
     }
   }
 
-  void plot(const int16_t x, const int16_t y, const Color color) {
+  void plot(const int16_t x, const int16_t y, const Color color, uint8_t coverage = 255) {
     if (!fb_ || !clip_.contains(x, y)) return;
     if (x < 0 || y < 0 || x >= w_ || y >= h_ || color == Color::Transparent) return;
     // Rotate the logical pixel into panel-native space. Transforms match
@@ -354,6 +357,12 @@ class DisplayTarget final : public DrawTarget {
         px = x;
         py = y;
         break;
+    }
+    if (gray8_) {
+      const uint8_t level = color == Color::Black ? 0 : color == Color::DarkGray ? 64 : color == Color::LightGray ? 192 : 255;
+      auto& pixel = fb_[static_cast<int32_t>(py) * pwb_ + px];
+      pixel = uint8_t((uint32_t(level)*coverage + uint32_t(pixel)*(255-coverage) + 127)/255);
+      return;
     }
     uint8_t& byte = fb_[static_cast<int32_t>(py) * pwb_ + (px >> 3)];
     const uint8_t mask = static_cast<uint8_t>(0x80 >> (px & 7));
@@ -475,7 +484,8 @@ class DisplayTarget final : public DrawTarget {
           if (a == 0) continue;
           const int16_t px = static_cast<int16_t>(penX + g.xOffset + gx);
           const int16_t py = static_cast<int16_t>(baseline + g.yOffset + gy);
-          if (a == 15 || a > bayerAt(px, py)) plot(px, py, color);
+          if (gray8_) plot(px, py, color, a*17);
+          else if (a == 15 || a > bayerAt(px, py)) plot(px, py, color);
         }
       }
       return;
@@ -516,7 +526,8 @@ class DisplayTarget final : public DrawTarget {
                if (a == 0) continue;
                const int16_t px = static_cast<int16_t>(penX + rg.xoff + gx);
                const int16_t py = static_cast<int16_t>(baseline + rg.yoff + gy);
-               if (a >= 240 || (a >> 4) > bayerAt(px, py)) plot(px, py, color);
+               if (gray8_) plot(px, py, color, a);
+               else if (a >= 240 || (a >> 4) > bayerAt(px, py)) plot(px, py, color);
              }
            }
           penX = static_cast<int16_t>(penX + rg.advance);

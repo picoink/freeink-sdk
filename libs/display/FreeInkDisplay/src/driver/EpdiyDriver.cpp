@@ -176,6 +176,24 @@ bool EpdiyDriver::displayStart(EpdBus& bus, const uint8_t* fb, const uint8_t* pr
   _working.store(true); xTaskNotifyGive(_worker);
   return true;
 }
+bool EpdiyDriver::displayGray8Start(EpdBus& bus, const uint8_t* pixels, uint16_t stride, RefreshMode mode) {
+  displayFinish(bus, nullptr);
+  const auto g = geometry();
+  if (!_ready || !pixels || stride < g.width) { _success.store(false); return false; }
+  auto* dst = epd_hl_get_framebuffer(&_hl);
+  for (uint16_t y = 0; y < g.height; ++y) {
+    const auto* row = pixels + size_t(y)*stride;
+    for (uint16_t x = 0; x < g.width; x += 2) {
+      const uint8_t even = (uint16_t(row[x])+8)/17;
+      const uint8_t odd = (uint16_t(row[x+1])+8)/17;
+      dst[(size_t(y)*g.width+x)/2] = even | (odd << 4);
+    }
+  }
+  _lastBaseMode = mode == RefreshMode::Fast ? MODE_GL16 : MODE_GC16;
+  _jobFull = mode != RefreshMode::Fast;
+  if (!_worker) { update(_lastBaseMode, _jobFull); return false; }
+  _working.store(true); xTaskNotifyGive(_worker); return true;
+}
 void EpdiyDriver::displayFinish(EpdBus&, const uint8_t*) {
   while (_working.load()) delay(1);
 }

@@ -61,6 +61,12 @@ void EInkDisplay::displayBufferAsync(RefreshMode mode) {
   publishFrame(buffer_, getDisplayWidth(), getDisplayHeight());
   busyUntil_ = nowMs() + (mode == FULL_REFRESH ? runtime().displayFullMs : runtime().displayFastMs);
 }
+bool EInkDisplay::displayGray8BufferAsync(const uint8_t* pixels, uint16_t stride, RefreshMode mode) {
+  if (!pixels || stride < getDisplayWidth() || refreshBusy()) return false;
+  publishFrame(pixels, getDisplayWidth(), getDisplayHeight(), stride);
+  busyUntil_ = nowMs() + (mode == FULL_REFRESH ? runtime().displayFullMs : runtime().displayFastMs);
+  return true;
+}
 void EInkDisplay::displayBuffer(RefreshMode mode, bool) {
   waitRefreshComplete();
   displayBufferAsync(mode);

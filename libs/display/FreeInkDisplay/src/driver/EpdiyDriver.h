@@ -36,6 +36,8 @@ class EpdiyDriver : public PanelDriver {
   void deepSleep(EpdBus& bus) override;
   void display(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, RefreshMode mode, bool turnOff) override;
 
+  bool supportsGray8() const override { return true; }
+  bool displayGray8Start(EpdBus&, const uint8_t*, uint16_t, RefreshMode) override;
   bool supportsAsyncDisplay() const override { return _worker != nullptr; }
   bool refreshBusy(EpdBus&) const override { return _working.load(); }
   bool lastRefreshSucceeded() const override { return _success.load(); }

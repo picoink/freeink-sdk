@@ -51,7 +51,7 @@ void commitHitRegions() {
   std::lock_guard<std::mutex> lock(r.frameMutex);
   r.frame.hits = r.drawingHits;
 }
-void publishFrame(const uint8_t* bits, int width, int height) {
+void publishFrame(const uint8_t* bits, int width, int height, int grayStride) {
   HostScope scope;
   auto& r = runtime();
   Frame f;
@@ -85,6 +85,7 @@ void publishFrame(const uint8_t* bits, int width, int height) {
           break;
       }
       f.pixels[size_t(y) * f.width + x] =
+          grayStride ? uint8_t(((unsigned(bits[size_t(py)*grayStride+px])+8)/17)*17) :
           (bits[size_t(py) * (width / 8) + px / 8] & (0x80 >> (px % 8))) ? 255 : 0;
     }
   f.texts = r.drawingTexts;

@@ -243,6 +243,23 @@ void testCenteredDigitInk() {
   }
 }
 
+void testDisplayTargetGray8() {
+  uint8_t fb[32*16]; memset(fb,255,sizeof(fb));
+  DisplayTarget target(fb,32,16,32,Orientation::LandscapeCounterClockwise,true);
+  target.fill({0,0,8,8},Paint::solid(Color::DarkGray));
+  for (int y=0;y<8;++y) for (int x=0;x<8;++x) CHECK_EQ(fb[y*32+x],64);
+  static constexpr uint8_t pixels[] = {0x08,0xF8};
+  static constexpr FontGlyph glyphs[] = {{0,4,1,5,0,-1}};
+  static constexpr BitmapFont font{pixels,glyphs,'A','A',2,1,4,1,4};
+  target.setFont(font); target.text({8,0,16,8},"A",{});
+  unsigned half = 0, black = 0;
+  for (uint8_t value : fb) { half += value == 119; black += value == 0; }
+  CHECK_EQ(half,2u); CHECK_EQ(black,1u);
+  target.setOrientation(Orientation::Portrait);
+  target.fill({0,0,1,1},Paint::solid(Color::LightGray));
+  CHECK_EQ(fb[15*32],192);
+}
+
 void testDisplayTargetAlphaFont() {
   constexpr int16_t W = 32, H = 16, WB = W / 8;
   uint8_t fb[WB * H];
@@ -6086,6 +6103,7 @@ int main() {
   testRect();
   testDisplayTarget();
   testDisplayTargetAlphaFont();
+  testDisplayTargetGray8();
   testCenteredDigitInk();
   testStackFillsExactly();
   testStackFlexRemainderWithTrailingFixed();

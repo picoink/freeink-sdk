@@ -27,6 +27,14 @@ int main() {
     driver.displayStart(bus, frame.data(), nullptr, RefreshMode::Fast, false);
     driver.displayFinish(bus, nullptr);
     assert(panel::lastKind == 2 && panel::lastMode == MODE_DU);
+    std::array<uint8_t,128> gray{};
+    for (size_t i=0;i<gray.size();++i) gray[i] = (i%16)*17;
+    panel::block();
+    assert(driver.displayGray8Start(bus,gray.data(),16,RefreshMode::Fast));
+    panel::waitEntered(); gray.fill(255);
+    for (size_t i=0;i<64;++i) assert(panel::framebuffer[i] == uint8_t((i*2%16) | ((i*2+1)%16)<<4));
+    panel::release(); driver.displayFinish(bus,nullptr);
+    assert(panel::lastMode == MODE_GL16 && driver.lastRefreshSucceeded());
     panel::fail = true;
     driver.displayStart(bus, frame.data(), nullptr, RefreshMode::Full, false);
     driver.displayFinish(bus, nullptr);

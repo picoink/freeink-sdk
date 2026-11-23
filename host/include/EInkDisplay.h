@@ -20,6 +20,8 @@ class EInkDisplay {
   bool refreshBusy();
   bool lastRefreshSucceeded() const { return !freeink::host::fault("display"); }
   void waitRefreshComplete();
+  bool supportsGray8() const { return true; }
+  bool displayGray8BufferAsync(const uint8_t*, uint16_t stride, RefreshMode mode = FAST_REFRESH);
   bool supportsAsyncRefresh() const { return true; }
   void deepSleep() {}
   void clearScreen(uint8_t v = 255) { memset(buffer_, v, getBufferSize()); }

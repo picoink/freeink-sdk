@@ -676,6 +676,15 @@ bool FreeInkDisplay::lastRefreshSucceeded() const {
   return _driver && _driver->lastRefreshSucceeded();
 }
 
+bool FreeInkDisplay::supportsGray8() const { return _driver && _driver->supportsGray8(); }
+bool FreeInkDisplay::displayGray8BufferAsync(const uint8_t* pixels, uint16_t stride, RefreshMode mode) {
+  if (!supportsGray8() || !pixels || stride < getDisplayWidth() || refreshBusy()) return false;
+  syncPendingAsync();
+  DisplayPmLock pmLock;
+  _refreshPending = _driver->displayGray8Start(_bus, pixels, stride, toInternal(mode));
+  return _refreshPending || _driver->lastRefreshSucceeded();
+}
+
 void FreeInkDisplay::displayBuffer(RefreshMode mode, bool turnOffScreen) {
   cancelGrayscalePass();
   _grayPassFailed = false;
