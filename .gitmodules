@@ -3,5 +3,5 @@
 	url = https://github.com/lucide-icons/lucide
 [submodule "libs/display/epdiy"]
 	path = libs/display/epdiy
-	url = https://github.com/Free-Ink/epdiy.git
-	branch = esp32s31
+	url = https://github.com/picoink/epdiy.git
+	branch = picoink
