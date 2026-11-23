@@ -301,6 +301,9 @@ class DisplayTarget final : public DrawTarget {
               const Rotation rotation = Rotation::None) override {
     if (!bitmap || rect.empty()) return;
     if (bitmap.format==BitmapFormat::Gray2) {
+      if (gray8_ && mode==BitmapMode::Stretch && rotation==Rotation::None) {
+        stretchGray2(rect,bitmap); return;
+      }
       const Color levels[]={Color::Black,Color::DarkGray,Color::LightGray,Color::White};
       forEachBitmapSample(rect,bitmap,mode,[&](int16_t x,int16_t y,uint8_t level) { plot(x,y,levels[level]); },rotation);
       return;
@@ -315,6 +318,44 @@ class DisplayTarget final : public DrawTarget {
   }
 
  private:
+  void stretchGray2(Rect rect, const BitmapRef& bitmap) {
+    if (!fb_) return;
+    const int left=std::max<int>({0,rect.x,clip_.x}), top=std::max<int>({0,rect.y,clip_.y});
+    const int right=std::min<int>({w_,rect.right(),clip_.right()});
+    const int bottom=std::min<int>({h_,rect.bottom(),clip_.bottom()});
+    if (right<=left || bottom<=top) return;
+    const bool transposed=isPortrait(orientation_);
+    int px=left,py=top,width=right-left,height=bottom-top,lx=left,ly=top,step=1;
+    switch (orientation_) {
+      case Orientation::Portrait: px=top; py=ph_-right; lx=right-1; std::swap(width,height); break;
+      case Orientation::PortraitInverted: px=pw_-bottom; py=left; ly=bottom-1; step=-1; std::swap(width,height); break;
+      case Orientation::LandscapeClockwise: px=pw_-right; py=ph_-bottom; lx=right-1; ly=bottom-1; step=-1; break;
+      default: break;
+    }
+    const int sourceSize=transposed ? bitmap.height : bitmap.width;
+    const int destinationSize=transposed ? rect.height : rect.width;
+    const int start=((transposed ? ly-rect.y : lx-rect.x)*sourceSize);
+    const int increment=step*sourceSize;
+    const int quotient=increment>=0 ? increment/destinationSize : -((-increment+destinationSize-1)/destinationSize);
+    const int remainder=increment-quotient*destinationSize;
+    const int stride=(bitmap.width+3)/4;
+    const uint8_t levels[]={0,64,192,255};
+    // Traverse physical rows: contiguous PSRAM stores, no per-pixel rotation,
+    // clipping, division or read/modify/write of the destination.
+    for (int row=0;row<height;++row) {
+      const int sourceFixed=transposed ? (lx-rect.x)*bitmap.width/rect.width : (ly-rect.y)*bitmap.height/rect.height;
+      int source=start/destinationSize,error=start%destinationSize;
+      uint8_t* destination=fb_+size_t(py+row)*pwb_+px;
+      for (int column=0;column<width;++column) {
+        const int sx=transposed ? sourceFixed : source,sy=transposed ? source : sourceFixed;
+        destination[column]=levels[(bitmap.data[sy*stride+sx/4]>>(6-2*(sx%4)))&3];
+        source+=quotient; error+=remainder;
+        if (error>=destinationSize) { error-=destinationSize; ++source; }
+      }
+      if (transposed) lx+=orientation_==Orientation::Portrait ? -1 : 1;
+      else ly+=step;
+    }
+  }
   static uint8_t grayLevel(Color color) {
     return color==Color::Black ? 0 : color==Color::DarkGray ? 64 : color==Color::LightGray ? 192 : 255;
   }

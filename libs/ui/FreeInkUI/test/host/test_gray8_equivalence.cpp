@@ -22,4 +22,24 @@ int main() {
     std::printf("%u: %llu\n",orientation,(unsigned long long)digest);
     if (golden[orientation]) assert(digest==golden[orientation]);
   }
+  // Independent goldens from the scalar bitmap sampler, including clipping,
+  // non-byte-aligned source widths, up/down-scaling and padded frame strides.
+  constexpr uint64_t bitmapGolden[]={17635166816833864429ULL,6838975000517510862ULL,11413574799781121805ULL,9254966445807731614ULL};
+  for (unsigned orientation=0;orientation<4;++orientation) {
+    std::array<uint8_t,67*47> pixels; pixels.fill(37);
+    std::array<uint8_t,16*64> bits;
+    DisplayTarget target(pixels.data(),61,47,67,Orientation(orientation),true);
+    uint32_t random=67890; uint64_t digest=14695981039346656037ULL;
+    auto next=[&]() { random^=random<<13; random^=random>>17; random^=random<<5; return random; };
+    for (auto& b:bits) b=next();
+    for (unsigned n=0;n<500;++n) {
+      target.setClipRect({int16_t(next()%30-8),int16_t(next()%30-8),int16_t(next()%65),int16_t(next()%65)});
+      Rect r{int16_t(next()%65-10),int16_t(next()%65-10),int16_t(next()%65),int16_t(next()%65)};
+      BitmapRef bitmap{bits.data(),uint16_t(1+next()%63),uint16_t(1+next()%63),BitmapFormat::Gray2,false};
+      target.bitmap(r,bitmap,BitmapMode::Stretch);
+      for (auto pixel:pixels) { digest^=pixel; digest*=1099511628211ULL; }
+    }
+    std::printf("bitmap %u: %llu\n",orientation,(unsigned long long)digest);
+    if (bitmapGolden[orientation]) assert(digest==bitmapGolden[orientation]);
+  }
 }
