@@ -5,6 +5,42 @@
 #include <cstdio>
 using namespace freeink::ui;
 int main() {
+  // Independent opaque Gray4 sampler: all levels, odd widths, padded frame
+  // rows, clips, scaling, image rotation and display orientation.
+  for (unsigned orientation=0;orientation<4;++orientation) for (unsigned rotation=0;rotation<4;++rotation) {
+    uint32_t random=42; auto next=[&]() { random^=random<<13; random^=random>>17; random^=random<<5; return random; };
+    for (unsigned n=0;n<200;++n) {
+      std::array<uint8_t,79*53> actual,expected; actual.fill(37); expected=actual;
+      std::array<uint8_t,18*31> source{};
+      const int sw=1+next()%35,sh=1+next()%31,stride=(sw+1)/2;
+      for (auto& v:source) v=next();
+      DisplayTarget target(actual.data(),73,53,79,Orientation(orientation),true);
+      Rect clip{int16_t(next()%15),int16_t(next()%15),int16_t(20+next()%60),int16_t(20+next()%60)};
+      Rect rect{int16_t(int(next()%70)-8),int16_t(int(next()%70)-8),int16_t(1+next()%60),int16_t(1+next()%60)};
+      target.setClipRect(clip);
+      const auto rot=Rotation(rotation);
+      target.bitmap(rect,{source.data(),uint16_t(sw),uint16_t(sh),BitmapFormat::Gray4,false},BitmapMode::Stretch,Paint::solid(Color::Black),rot);
+      const bool transpose=rot==Rotation::CW90 || rot==Rotation::CCW90;
+      for (int y=0;y<target.logicalHeight();++y) for (int x=0;x<target.logicalWidth();++x) {
+        if (!clip.contains(x,y) || !rect.contains(x,y)) continue;
+        int sx=(x-rect.x)*(transpose?sh:sw)/rect.width,sy=(y-rect.y)*(transpose?sw:sh)/rect.height;
+        const int a=sx,b=sy;
+        if (rot==Rotation::CW90) { sx=b; sy=sh-1-a; }
+        if (rot==Rotation::CCW90) { sx=sw-1-b; sy=a; }
+        if (rot==Rotation::R180) { sx=sw-1-a; sy=sh-1-b; }
+        const uint8_t level=(source[sy*stride+sx/2]>>(sx%2?0:4))&15;
+        int px=x,py=y;
+        switch (Orientation(orientation)) {
+          case Orientation::Portrait: px=y; py=52-x; break;
+          case Orientation::PortraitInverted: px=72-y; py=x; break;
+          case Orientation::LandscapeClockwise: px=72-x; py=52-y; break;
+          default: break;
+        }
+        expected[py*79+px]=level*17;
+      }
+      assert(actual==expected);
+    }
+  }
   constexpr uint64_t golden[] = {5597993389776442870ULL,4368237096470293838ULL,13591335326007868942ULL,7583761200910116854ULL};
   for (unsigned orientation=0;orientation<4;++orientation) {
     std::array<uint8_t,67*47> pixels; pixels.fill(37);

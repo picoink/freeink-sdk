@@ -323,3 +323,11 @@ The USB MSC suite also compiles `FlashUsbStorage` against a deterministic
 wear-levelling backend. It covers native 4096-byte FAT sectors, partition/bounds
 validation, erase failures and remount persistence. These host checks do not
 replace real USB host enumeration, flash wear-levelling or cable-removal tests.
+
+## Packed 16-level bitmaps
+
+`BitmapFormat::Gray4` stores two pixels per byte, high nibble first, with 0
+black and 15 white. The Gray8 target expands each level to `level * 17`.
+The UI host suite checks all display/image rotations, odd widths, clipped and
+scaled rectangles, padded output rows, and every gray level against an
+independent scalar frame. This verifies pixel values, not optical panel levels.

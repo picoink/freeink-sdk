@@ -314,9 +314,16 @@ class DisplayTarget final : public DrawTarget {
               const Paint foreground = Paint::solid(Color::Black),
               const Rotation rotation = Rotation::None) override {
     if (!bitmap || rect.empty()) return;
+    if (bitmap.format==BitmapFormat::Gray4) {
+      if (gray8_ && mode==BitmapMode::Stretch && rotation==Rotation::None) {
+        stretchGray<4>(rect,bitmap); return;
+      }
+      forEachBitmapSample(rect,bitmap,mode,[&](int16_t x,int16_t y,uint8_t level) { plotGray(x,y,level*17); },rotation);
+      return;
+    }
     if (bitmap.format==BitmapFormat::Gray2) {
       if (gray8_ && mode==BitmapMode::Stretch && rotation==Rotation::None) {
-        stretchGray2(rect,bitmap); return;
+        stretchGray<2>(rect,bitmap); return;
       }
       const Color levels[]={Color::Black,Color::DarkGray,Color::LightGray,Color::White};
       forEachBitmapSample(rect,bitmap,mode,[&](int16_t x,int16_t y,uint8_t level) { plot(x,y,levels[level]); },rotation);
@@ -363,7 +370,7 @@ class DisplayTarget final : public DrawTarget {
       }
     }
   }
-  void stretchGray2(Rect rect, const BitmapRef& bitmap) {
+  template<unsigned Bits> void stretchGray(Rect rect, const BitmapRef& bitmap) {
     if (!fb_) return;
     const int left=std::max<int>({0,rect.x,clip_.x}), top=std::max<int>({0,rect.y,clip_.y});
     const int right=std::min<int>({w_,rect.right(),clip_.right()});
@@ -383,7 +390,8 @@ class DisplayTarget final : public DrawTarget {
     const int increment=step*sourceSize;
     const int quotient=increment>=0 ? increment/destinationSize : -((-increment+destinationSize-1)/destinationSize);
     const int remainder=increment-quotient*destinationSize;
-    const int stride=(bitmap.width+3)/4;
+    constexpr unsigned perByte=8/Bits, mask=(1u<<Bits)-1;
+    const int stride=(bitmap.width+perByte-1)/perByte;
     const uint8_t levels[]={0,64,192,255};
     // Traverse physical rows: contiguous PSRAM stores, no per-pixel rotation,
     // clipping, division or read/modify/write of the destination.
@@ -393,7 +401,8 @@ class DisplayTarget final : public DrawTarget {
       uint8_t* destination=fb_+size_t(py+row)*pwb_+px;
       for (int column=0;column<width;++column) {
         const int sx=transposed ? sourceFixed : source,sy=transposed ? source : sourceFixed;
-        destination[column]=levels[(bitmap.data[sy*stride+sx/4]>>(6-2*(sx%4)))&3];
+        const auto level=(bitmap.data[sy*stride+sx/perByte]>>(8-Bits-Bits*(sx%perByte)))&mask;
+        destination[column]=Bits==4 ? level*17 : levels[level];
         source+=quotient; error+=remainder;
         if (error>=destinationSize) { error-=destinationSize; ++source; }
       }
@@ -403,6 +412,20 @@ class DisplayTarget final : public DrawTarget {
   }
   static uint8_t grayLevel(Color color) {
     return color==Color::Black ? 0 : color==Color::DarkGray ? 64 : color==Color::LightGray ? 192 : 255;
+  }
+  void plotGray(int16_t x,int16_t y,uint8_t level) {
+    if (!fb_ || x<0 || y<0 || x>=w_ || y>=h_ || !clip_.contains(x,y)) return;
+    int px=x,py=y;
+    switch (orientation_) {
+      case Orientation::Portrait: px=y; py=ph_-1-x; break;
+      case Orientation::PortraitInverted: px=pw_-1-y; py=x; break;
+      case Orientation::LandscapeClockwise: px=pw_-1-x; py=ph_-1-y; break;
+      default: break;
+    }
+    if (gray8_) { fb_[size_t(py)*pwb_+px]=level; return; }
+    auto& byte=fb_[size_t(py)*pwb_+px/8]; const uint8_t bit=0x80>>(px%8);
+    if (level < 255 && (255-level)*16 > bayerAt(x,y)*255) byte&=~bit;
+    else byte|=bit;
   }
   void fillGrayRect(Rect rect, Color color) {
     if (!fb_ || rect.empty()) return;

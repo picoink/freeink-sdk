@@ -335,6 +335,7 @@ enum class BitmapFormat : uint8_t {
   BW1,
   Gray2,
   NativeBmp,
+  Gray4, // Two luminance samples per byte, high nibble first; 0 black, 15 white.
 };
 
 enum class BitmapMode : uint8_t {
@@ -403,12 +404,13 @@ inline void forEachBitmapSample(const Rect rect, const BitmapRef &src,
                                const Rotation rotation = Rotation::None) {
   if (!src || rect.empty())
     return;
-  const int bytesPerRow = src.format==BitmapFormat::Gray2 ? (src.width+3)/4 : (src.width+7)/8;
+  const int bytesPerRow = src.format==BitmapFormat::Gray4 ? (src.width+1)/2 : src.format==BitmapFormat::Gray2 ? (src.width+3)/4 : (src.width+7)/8;
   // Mask1 is the freeink::Icon convention (bit 1 = transparent, bit 0 = draw);
   // BW1 is set-bit-is-ink. Fold that polarity in here so both formats plot
   // their drawn pixels through the same sampling math.
   const bool maskInverted = src.format == BitmapFormat::Mask1;
   const auto srcInk = [&](const int sx, const int sy) {
+    if (src.format==BitmapFormat::Gray4) return uint8_t((src.data[sy*bytesPerRow+sx/2] >> (4-4*(sx%2)))&15);
     if (src.format==BitmapFormat::Gray2) return uint8_t((src.data[sy*bytesPerRow+sx/4] >> (6-2*(sx%4)))&3);
     const uint8_t bit =
         (src.data[sy * bytesPerRow + sx / 8] >> (7 - (sx % 8))) & 0x01;
