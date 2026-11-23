@@ -135,6 +135,7 @@ struct FsFile::Impl {
   std::string logical, name;
   StorageVolume* volume = nullptr;
   uint64_t epoch = 0;
+  bool directoryError = false;
   ~Impl() {
     if (dir) closedir(dir);
     if (fd >= 0) ::close(fd);
@@ -223,14 +224,19 @@ const char* FsFile::path() const { return *this ? impl_->logical.c_str() : ""; }
 FsFile FsFile::openNextFile() {
   HostScope scope;
   if (!isDirectory()) return {};
+  if(impl_->volume->failed("_read")){impl_->directoryError=true;return {};}
+  errno=0;
   while (auto* entry = readdir(impl_->dir)) {
     if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
     const auto logical = (disk::path(impl_->logical) / entry->d_name).string();
     auto f = hostOpen(*impl_->volume, logical.c_str(), O_RDONLY);
     if (f) return f;
+    impl_->directoryError=true;return {};
   }
+  if(errno)impl_->directoryError=true;
   return {};
 }
+uint8_t FsFile::getError() const {return !*this || impl_->directoryError;}
 SDCardManager& SDCardManager::getInstance() {
   static SDCardManager card;
   return card;

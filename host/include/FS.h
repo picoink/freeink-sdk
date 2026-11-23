@@ -40,6 +40,7 @@ class File {
   size_t size() const { return file_.fileSize(); }
   const char* name() const { return file_.name(); }
   const char* path() const { return file_.path(); }
+  bool iterationFailed() const {return file_.getError()!=0;}
   File openNextFile() { return File(file_.openNextFile()); }
 
  private:

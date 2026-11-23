@@ -43,6 +43,7 @@ class FsFile {
   const char* name() const;
   const char* path() const;
   FsFile openNextFile();
+  uint8_t getError() const;
 
  private:
   friend class SDCardManager;

@@ -7,6 +7,9 @@
 
 namespace freeink {
 enum class StorageVolume : uint8_t { Tf, Internal };
+struct StorageIoStats {uint64_t opens=0,reads=0,bytesRead=0,entries=0,cacheHits=0;};
+StorageIoStats storageIoStats(StorageVolume);
+void storageCacheHit(StorageVolume);
 struct StoragePath {
   StorageVolume volume = StorageVolume::Tf;
   std::string path;
@@ -41,6 +44,7 @@ class StorageFile {
   void flush() { sync(); }
   bool getName(char*, size_t) const;
   StorageFile openNextFile();
+  bool iterationFailed() const;
   StorageVolume volume() const { return volume_; }
  private:
   friend class VolumeStorage;
@@ -52,6 +56,8 @@ class StorageFile {
   bool counted_ = false;
   oflag_t flags_ = O_RDONLY;
   int descriptor_ = -1;
+  void* directory_ = nullptr;
+  bool iterationError_ = false;
   std::string path_;
 };
 class VolumeStorage {

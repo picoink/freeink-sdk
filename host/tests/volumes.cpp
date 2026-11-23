@@ -1,5 +1,6 @@
 #include <HostRuntime.h>
 #include <VolumeStorage.h>
+#include <StorageReadWindow.h>
 #include <unistd.h>
 #include <filesystem>
 #include <fstream>
@@ -42,6 +43,17 @@ int main() {
     CHECK(storage.mount(volume) && storage.exists(path.c_str()));
     auto readonly = storage.open(path.c_str()); CHECK(readonly.write("x",1) == 0); readonly.close();
     auto writeonly = storage.open(path.c_str(),O_WRONLY); CHECK(writeonly.read() == -1); writeonly.close();
+  }
+  {
+    auto f=storage.open("/tf/window",O_WRONLY|O_CREAT|O_TRUNC);char source[8192];
+    for(unsigned i=0;i<sizeof(source);++i)source[i]=i%251;
+    CHECK(f.write(source,sizeof(source))==sizeof(source));f.close();
+    StorageReadWindow window;CHECK(window.open("/tf/window"));char result[64];
+    CHECK(window.readAt(123,result,sizeof(result))==sizeof(result) && !memcmp(result,source+123,sizeof(result)));
+    host::setDevice("faults",host::Json(host::Object{{"sd_read",host::Json(true)}}));
+    CHECK(window.readAt(130,result,sizeof(result))==sizeof(result) && !memcmp(result,source+130,sizeof(result)));
+    CHECK(window.readAt(6000,result,sizeof(result))<0);
+    host::setDevice("faults",host::Json(host::Object{}));window.close();
   }
   CHECK(!storage.rename("/tf/books/sub/book.txt", "/internal/moved.txt"));
   CHECK(!storage.open("/internal/../secret",O_CREAT|O_WRONLY));
