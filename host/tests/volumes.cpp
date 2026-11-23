@@ -23,6 +23,12 @@ int main() {
     StorageFile moved = std::move(file);
     CHECK(!file && moved && storage.openFiles(volume) == 1);
     CHECK(moved.seekSet(0) && moved.read() == '/');
+    CHECK(moved.sync() && moved.modificationTime());
+    CHECK(moved.truncate(2) && moved.fileSize() == 2);
+    const auto fault = volume == StorageVolume::Tf ? "sd_sync" : "flash_sync";
+    host::setDevice("faults", host::Json(host::Object{{fault,host::Json(true)}}));
+    CHECK(!moved.sync());
+    host::setDevice("faults", host::Json(host::Object{}));
     moved.close();
     CHECK(storage.openFiles(volume) == 0);
     auto dir = storage.open((std::string(prefix)+"/books/sub").c_str());

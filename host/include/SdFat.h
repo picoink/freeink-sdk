@@ -36,6 +36,8 @@ class FsFile {
   uint64_t curPosition() const;
   uint64_t fileSize() const;
   bool sync();
+  bool truncate(uint64_t);
+  uint64_t modificationTime() const;
   void flush() { sync(); }
   bool getName(char* dst, size_t size) const;
   const char* name() const;

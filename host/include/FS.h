@@ -29,6 +29,9 @@ class File {
   size_t write(uint8_t value) { return file_.write(&value, 1); }
   size_t write(const uint8_t* data, size_t size) { return file_.write(data, size); }
   void flush() { file_.flush(); }
+  bool sync() { return file_.sync(); }
+  bool truncate(uint64_t n) { return file_.truncate(n); }
+  uint64_t modificationTime() const { return file_.modificationTime(); }
   bool seek(uint32_t pos, SeekMode mode = SeekSet) {
     if (mode != SeekSet && mode != SeekCur && mode != SeekEnd) return false;
     return file_.seek(pos, mode == SeekSet ? SEEK_SET : mode == SeekCur ? SEEK_CUR : SEEK_END);

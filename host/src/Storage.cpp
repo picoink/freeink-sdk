@@ -198,6 +198,18 @@ uint64_t FsFile::fileSize() const {
   struct stat s {};
   return *this && impl_->fd >= 0 && !fstat(impl_->fd, &s) ? s.st_size : 0;
 }
+bool FsFile::truncate(uint64_t n) {
+  return *this && impl_->fd >= 0 && n <= INT64_MAX && !impl_->volume->failed("_write") && !impl_->volume->failed("_truncate") && !ftruncate(impl_->fd, n);
+}
+uint64_t FsFile::modificationTime() const {
+  struct stat s {};
+  if (!*this || impl_->fd < 0 || fstat(impl_->fd, &s)) return 0;
+#ifdef __APPLE__
+  return uint64_t(s.st_mtimespec.tv_sec)*1000000000ULL+s.st_mtimespec.tv_nsec;
+#else
+  return uint64_t(s.st_mtim.tv_sec)*1000000000ULL+s.st_mtim.tv_nsec;
+#endif
+}
 bool FsFile::sync() {
   return *this && !impl_->volume->failed("_sync") && (impl_->dir || fsync(impl_->fd) == 0);
 }

@@ -35,6 +35,9 @@ class StorageFile {
   uint64_t fileSize() const;
   uint64_t size() const { return fileSize(); }
   bool sync();
+  bool truncate(uint64_t);
+  // Stable modification token; zero means the backend has no timestamp.
+  uint64_t modificationTime() const;
   void flush() { sync(); }
   bool getName(char*, size_t) const;
   StorageFile openNextFile();
@@ -48,6 +51,8 @@ class StorageFile {
   StorageVolume volume_ = StorageVolume::Tf;
   bool counted_ = false;
   oflag_t flags_ = O_RDONLY;
+  int descriptor_ = -1;
+  std::string path_;
 };
 class VolumeStorage {
  public:
