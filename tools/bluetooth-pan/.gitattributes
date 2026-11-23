@@ -1,0 +1,2 @@
+# A unified patch uses a single space for an empty context line.
+esp-idf-pan.patch -whitespace

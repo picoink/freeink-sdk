@@ -1,0 +1,62 @@
+[
+  {
+    "path": "components/bootloader/subproject/components/micro-ecc/micro-ecc",
+    "repository": "kmackay/micro-ecc",
+    "sha": "24c60e243580c7868f4334a1ba3123481fe1aa48"
+  },
+  {
+    "path": "components/spiffs/spiffs",
+    "repository": "pellepl/spiffs",
+    "sha": "ad902cadceb39d0825a97e25ecb5867641f606ba"
+  },
+  {
+    "path": "components/mbedtls/mbedtls",
+    "repository": "espressif/mbedtls",
+    "sha": "ce3f3485a121c100f58f36d700cb35b060f6e866"
+  },
+  {
+    "path": "components/lwip/lwip",
+    "repository": "espressif/esp-lwip",
+    "sha": "c6f2f878e7b0f86033214b85547d579be43351e3"
+  },
+  {
+    "path": "components/protobuf-c/protobuf-c",
+    "repository": "protobuf-c/protobuf-c",
+    "sha": "abc67a11c6db271bedbb9f58be85d6f4e2ea8389"
+  },
+  {
+    "path": "components/unity/unity",
+    "repository": "ThrowTheSwitch/Unity",
+    "sha": "bf560290f6020737eafaa8b5cbd2177c3956c03f"
+  },
+  {
+    "path": "components/esp_wifi/lib",
+    "repository": "espressif/esp32-wifi-lib",
+    "sha": "cce8a7328597181ae4e34962b93aae3b73508f33"
+  },
+  {
+    "path": "components/cmock/CMock",
+    "repository": "ThrowTheSwitch/CMock",
+    "sha": "eeecc49ce8af123cf8ad40efdb9673e37b56230f"
+  },
+  {
+    "path": "components/esp_phy/lib",
+    "repository": "espressif/esp-phy-lib",
+    "sha": "b88e4b76e090ae59c51cb00b916d38def895b396"
+  },
+  {
+    "path": "components/heap/tlsf",
+    "repository": "espressif/tlsf",
+    "sha": "2867f6883a12920b1969ff9624c0ab0e4185c2ce"
+  },
+  {
+    "path": "components/esp_coex/lib",
+    "repository": "espressif/esp-coex-lib",
+    "sha": "c758e7b56e0fa22177a0539796e1df59978dc322"
+  },
+  {
+    "path": "components/bt/controller/lib_esp32s31/esp32s31-bt-lib",
+    "repository": "espressif/esp32s31-bt-lib",
+    "sha": "3d8cee57c4ccff603d4f52fe16be1f04ece78ede"
+  }
+]

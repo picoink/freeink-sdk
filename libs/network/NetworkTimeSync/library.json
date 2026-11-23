@@ -1,0 +1,1 @@
+{"name":"NetworkTimeSync","version":"1.0.0","description":"Cancellable one-shot NTP connectivity test and UTC time","frameworks":["arduino"],"platforms":["espressif32"]}

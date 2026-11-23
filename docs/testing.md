@@ -233,3 +233,21 @@ available to other FreeInk consumers. The desktop adapter follows the same edge
 contract and now makes `FsFile` move-only, matching SdFat's production ownership.
 Run `libs/hardware/InputManager/test/host/run_async.sh` as well as the input suites
 above; the desktop `host_input` test covers timestamps, release and overflow.
+
+## Bluetooth PAN
+
+```sh
+python3 libs/network/BluetoothPan/test/host/run.py
+python3 libs/network/NetworkTimeSync/test/host/run.py
+```
+
+Checks capability gating independently of radio initialization: Classic hardware,
+feature opt-in, Bluedroid and PAN are all required. BLE-only, disabled and host
+builds return false. The real PAN worker/callbacks also run against deterministic
+radio/RTOS fakes: start/stop races, SSP confirmation/rejection, IP acquisition,
+link retry, forgetting, late connections, bounded Ethernet RX and congestion.
+Twenty repeated enables verify runtime resource cleanup. NTP tests cover packet
+validation, 2036 era rollover, DNS failure, timeouts, cancellation and stale results.
+Both lifecycle suites enable undefined-behavior checks. PAN additionally accepts
+`SANITIZERS=address,undefined` when the host compiler/runtime supports it.
+Hardware pairing, DHCP, power and network access require a real device.
