@@ -81,8 +81,9 @@ ImageAccelerator::~ImageAccelerator() {
 }
 book::ImageBackend::Result ImageAccelerator::render(book::BookSource& source,const book::ZipEntry& entry,
     const book::PageImage& image,book::Arena& scratch,book::ImageRowFn rowFn,void* user) {
+  const auto fallbacks=stats_.fallback;
   const auto result=decode(source,entry,image,scratch,rowFn,user);
-  if (!proceed()) { stats_.reason=Reason::Cancelled; return Result::Stopped; }
+  if (!proceed()) { stats_.fallback=fallbacks; stats_.reason=Reason::Cancelled; return Result::Stopped; }
   return result;
 }
 book::ImageBackend::Result ImageAccelerator::decode(book::BookSource& source,const book::ZipEntry& entry,
