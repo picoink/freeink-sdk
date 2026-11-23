@@ -12,6 +12,7 @@ void* host_caps_malloc(size_t size, unsigned caps);
 void* host_caps_realloc(void* ptr, size_t size, unsigned caps);
 void* host_aligned_alloc(size_t alignment, size_t size);
 size_t host_heap_free(unsigned caps);
+size_t host_heap_total(unsigned caps);
 size_t host_heap_largest(unsigned caps);
 #ifdef __cplusplus
 }

@@ -313,6 +313,8 @@ void InputManager::beginAsync(const uint8_t taskPriority, const uint32_t pollMs,
   _asyncPollMs = pollMs ? pollMs : 1;
   _asyncQueue = xQueueCreate(queueLen, sizeof(uint8_t));
   if (!_asyncQueue) return;
+  _asyncKeyQueue = xQueueCreate(queueLen, sizeof(KeyEvent));
+  _asyncKeyOverflow.store(false);
   _asyncTapQueue = xQueueCreate(queueLen, sizeof(float) * 2);
   _asyncSwipeQueue = xQueueCreate(queueLen, sizeof(float) * 4);
   _asyncMultiTouchSwipeQueue = xQueueCreate(queueLen, sizeof(QueuedMultiTouchSwipe));
@@ -320,7 +322,7 @@ void InputManager::beginAsync(const uint8_t taskPriority, const uint32_t pollMs,
   _asyncMultiTouchPinchQueue = xQueueCreate(queueLen, sizeof(QueuedMultiTouchPinch));
   _asyncHomeQueue = xQueueCreate(queueLen, sizeof(bool));
   if (!_asyncTapQueue || !_asyncSwipeQueue || !_asyncMultiTouchSwipeQueue ||
-      !_asyncMultiTouchRotationQueue || !_asyncMultiTouchPinchQueue || !_asyncHomeQueue) {
+      !_asyncMultiTouchRotationQueue || !_asyncMultiTouchPinchQueue || !_asyncHomeQueue || !_asyncKeyQueue) {
     deleteAsyncQueues();
     return;
   }
@@ -333,7 +335,7 @@ void InputManager::beginAsync(const uint8_t taskPriority, const uint32_t pollMs,
 }
 
 void InputManager::deleteAsyncQueues() {
-  for (auto* queue : {&_asyncQueue, &_asyncHomeQueue, &_asyncTapQueue, &_asyncSwipeQueue,
+  for (auto* queue : {&_asyncQueue, &_asyncKeyQueue, &_asyncHomeQueue, &_asyncTapQueue, &_asyncSwipeQueue,
                      &_asyncMultiTouchSwipeQueue, &_asyncMultiTouchRotationQueue, &_asyncMultiTouchPinchQueue}) {
     if (*queue) vQueueDelete(*queue);
     *queue = nullptr;
@@ -378,6 +380,10 @@ void InputManager::asyncPoll() {
     }
     for (const uint8_t b : kButtons) {
       if (wasPressed(b)) xQueueSend(_asyncQueue, &b, 0);
+      if (wasPressed(b) || wasReleased(b)) {
+        const KeyEvent event{uint32_t(millis()), b, wasPressed(b)};
+        if (xQueueSend(_asyncKeyQueue, &event, 0) != pdTRUE) _asyncKeyOverflow.store(true);
+      }
     }
     float tap[2];
     if (_asyncTapQueue && wasTouchTap(tap[0], tap[1])) {
@@ -410,6 +416,16 @@ void InputManager::asyncPoll() {
 bool InputManager::popPress(uint8_t& button) {
   if (!_asyncQueue) return false;
   return xQueueReceive(_asyncQueue, &button, 0) == pdTRUE;
+}
+
+bool InputManager::popKeyEvent(KeyEvent& event) {
+  if (!_asyncKeyQueue) return false;
+  if (_asyncKeyOverflow.exchange(false)) {
+    while (xQueueReceive(_asyncKeyQueue, &event, 0) == pdTRUE) {}
+    event = {uint32_t(millis()), 255, false};
+    return true;
+  }
+  return xQueueReceive(_asyncKeyQueue, &event, 0) == pdTRUE;
 }
 
 bool InputManager::popTouchTap(float& nx, float& ny) {

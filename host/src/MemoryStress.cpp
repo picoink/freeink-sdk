@@ -400,6 +400,13 @@ size_t host_heap_free(unsigned c) {
   auto& p = (c & MALLOC_CAP_SPIRAM) ? r.psram : r.ram;
   return p.capacity - p.reserved - p.used;
 }
+size_t host_heap_total(unsigned c) {
+  Guard g;
+  auto& r = resources();
+  if (!r.enabled) return 16 * 1024 * 1024;
+  std::lock_guard<std::mutex> l(r.mutex);
+  return (c & MALLOC_CAP_SPIRAM) ? r.psram.capacity : r.ram.capacity;
+}
 size_t host_heap_largest(unsigned c) {
   Guard g;
   auto& r = resources();

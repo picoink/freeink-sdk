@@ -274,6 +274,10 @@ class InputManager {
   // Pop the next latched button index (BTN_*) into `button`. Returns false when
   // no press is pending (or async polling was never started).
   bool popPress(uint8_t& button);
+  struct KeyEvent { uint32_t timestamp; uint8_t button; bool pressed; };
+  // Debounced physical edges stamped in the polling task. Button 255 means
+  // queue overflow: consumers must discard any partially recognized gesture.
+  bool popKeyEvent(KeyEvent&);
 
   // Pop the next latched touch tap (normalized 0..1 panel-native coordinates,
   // same frame as wasTouchTap). The async task queues every completed tap, so
@@ -326,6 +330,8 @@ class InputManager {
   static ButtonHook s_buttonHook;
 
   QueueHandle_t _asyncQueue = nullptr;
+  QueueHandle_t _asyncKeyQueue = nullptr;
+  std::atomic<bool> _asyncKeyOverflow{false};
   QueueHandle_t _asyncHomeQueue = nullptr;
   QueueHandle_t _asyncTapQueue = nullptr;
   QueueHandle_t _asyncSwipeQueue = nullptr;

@@ -6,7 +6,7 @@ int main() {
   for (int& level : gpioLevels) level = HIGH;
   InputManager input;
   input.begin();
-  for (int failure = 1; failure <= 7; ++failure) {
+  for (int failure = 1; failure <= 8; ++failure) {
     queueCreates = 0; failQueueAt = failure;
     input.beginAsync();
     assert(!input.asyncRunning() && liveQueues == 0);

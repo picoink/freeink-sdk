@@ -7,6 +7,8 @@
 #include "Arduino.h"
 #include "HostMemory.h"
 #include "esp_heap_caps.h"
+#include "ApplicationMemory.h"
+#include "FontAlloc.h"
 extern "C" void* c_allocation(size_t);
 extern "C" void c_release(void*);
 extern "C" void cpu_work();
@@ -16,6 +18,31 @@ int main() {
   assert(parseJson(R"({"memory":{"ram_bytes":4096,"psram_bytes":8192}})", config).empty());
   configureResources(config);
   firmwareAllocations = true;
+  assert(heap_caps_get_total_size(MALLOC_CAP_SPIRAM) == 8192);
+  {
+    auto application = freeink::memory::make<char[1024]>();
+    assert(application && (*application)[0] == 0);
+    (*application)[1023] = 42;
+    assert(host_heap_free(MALLOC_CAP_INTERNAL) == 4096);
+    assert(host_heap_free(MALLOC_CAP_SPIRAM) < 8192);
+    assert(heap_caps_get_total_size(MALLOC_CAP_SPIRAM) == 8192);
+    assert(!freeink::memory::make<char[9000]>());
+    assert(host_heap_free(MALLOC_CAP_INTERNAL) == 4096);
+    assert((*application)[1023] == 42);
+  }
+  assert(host_heap_free(MALLOC_CAP_SPIRAM) == 8192);
+  {
+    auto* font = static_cast<char*>(fiFontMalloc(128));
+    assert(font);
+    font[0] = 42;
+    void* occupied = ps_malloc(7500);
+    assert(occupied);
+    assert(!fiFontMalloc(1024));
+    assert(!fiFontRealloc(font, 1024));
+    assert(font[0] == 42 && host_heap_free(MALLOC_CAP_INTERNAL) == 4096);
+    free(occupied);
+    fiFontFree(font);
+  }
   auto* c = static_cast<char*>(c_allocation(200));
   assert(c);
   memset(c, 7, 200);

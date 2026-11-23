@@ -10,7 +10,7 @@ trap 'rm -rf "$BUILD_DIR"' EXIT HUP INT TERM
 FONT_FIXTURE="$SDK_ROOT/libs/book/FreeInkBook/test/fixtures/fonts/DejaVuSans.ttf"
 INCLUDES="-I$FONT_ROOT/include -I$FONT_ROOT/third_party/freetype/include -I$FONT_ROOT/third_party/stb"
 DEFINES='-DFREEINK_FONT_ENABLE_AUTOHINT=1 -DFREEINK_FONT_ENABLE_NATIVE_HINTING=1 -DFREEINK_FONT_ENABLE_MONOCHROME=1 -DFREEINK_FONT_ENABLE_CFF=1'
-SANITIZERS='-fsanitize=address,undefined -fno-omit-frame-pointer'
+SANITIZERS=${FREEINK_TEST_SANITIZERS:--fsanitize=address,undefined -fno-omit-frame-pointer}
 
 # The GSUB feature branch adds an optional companion translation unit to
 # FtFont.cpp. Keep this runner useful on the standalone hinting branch while

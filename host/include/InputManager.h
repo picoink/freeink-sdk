@@ -31,6 +31,8 @@ class InputManager {
   bool isPowerButtonPhysicallyPressed() const { return freeink::host::runtime().powerPressed; }
   unsigned long getPowerButtonHeldTime() const;
   bool popPress(uint8_t& key);
+  struct KeyEvent { uint32_t timestamp; uint8_t button; bool pressed; };
+  bool popKeyEvent(KeyEvent&);
   bool popHomeKey(bool& held);
   bool popTouchTap(float& x, float& y);
   bool popSwipe(float& x, float& y, float& x1, float& y1);
@@ -49,6 +51,8 @@ class InputManager {
  private:
   mutable std::mutex mutex_;
   std::deque<uint8_t> keys_;
+  std::deque<KeyEvent> edges_;
+  bool edgeOverflow_ = false;
   std::deque<bool> homes_;
   std::deque<std::array<float, 2>> taps_;
   std::deque<std::array<float, 4>> swipes_;

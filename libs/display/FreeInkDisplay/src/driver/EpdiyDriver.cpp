@@ -5,6 +5,7 @@
 #include <esp_heap_caps.h>
 
 #include <cstring>
+#include <array>
 
 #ifndef FREEINK_EPDIY_CONFIG
 #error \
@@ -22,11 +23,8 @@ namespace {
 constexpr uint8_t kBlack = 0x0, kDark = 0x5, kLight = 0xA, kWhite = 0xF;
 
 // One 1 bpp byte (MSB = leftmost pixel, set = white) -> four 4 bpp bytes.
-uint32_t gExpand[256];
-bool gExpandReady = false;
-
-void buildExpand() {
-  if (gExpandReady) return;
+constexpr std::array<uint32_t, 256> buildExpand() {
+  std::array<uint32_t, 256> values{};
   for (int b = 0; b < 256; ++b) {
     uint32_t out = 0;
     for (int pair = 0; pair < 4; ++pair) {
@@ -34,10 +32,11 @@ void buildExpand() {
       const uint8_t odd = (b & (0x40 >> (pair * 2))) ? kWhite : kBlack;
       out |= static_cast<uint32_t>(even | (odd << 4)) << (pair * 8);
     }
-    gExpand[b] = out;
+    values[b] = out;
   }
-  gExpandReady = true;
+  return values;
 }
+constexpr auto gExpand = buildExpand();
 
 enum EpdDrawMode modeFor(RefreshMode mode) {
   switch (mode) {
@@ -69,7 +68,6 @@ int EpdiyDriver::temperature() const {
 void EpdiyDriver::begin(EpdBus& bus) {
   (void)bus;
   if (_ready) return;
-  buildExpand();
   epd_init(_cfg.board, _cfg.display, _cfg.initOptions);
   if (_cfg.vcomMv > 0) epd_set_vcom(static_cast<uint16_t>(_cfg.vcomMv));
   // Native scan order; the host renders in the panel's own 1216x684 frame.

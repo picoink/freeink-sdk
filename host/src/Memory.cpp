@@ -22,5 +22,6 @@ void* host_aligned_alloc(size_t a, size_t n) {
   return posix_memalign(&p, a, n) == 0 ? p : nullptr;
 }
 size_t host_heap_free(unsigned) { return 16 * 1024 * 1024; }
+size_t host_heap_total(unsigned) { return 16 * 1024 * 1024; }
 size_t host_heap_largest(unsigned c) { return host_heap_free(c); }
 }
