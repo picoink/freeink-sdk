@@ -223,6 +223,20 @@ class DisplayTarget final : public DrawTarget {
     const Rect inner = rect.inset(Insets{static_cast<int16_t>(width), static_cast<int16_t>(width),
                                          static_cast<int16_t>(width), static_cast<int16_t>(width)});
     const int edge = std::min<int>(width+radius,std::min(rect.width,rect.height));
+    if (gray8_ && rect.width>2*edge && rect.height>2*edge) {
+      // Straight border spans do not need rounded-shape tests. Keep the
+      // existing corner predicate, including its inner-radius semantics.
+      fillGrayRect({int16_t(rect.x+edge),rect.y,int16_t(rect.width-2*edge),width},paint.color);
+      fillGrayRect({int16_t(rect.x+edge),int16_t(rect.bottom()-width),int16_t(rect.width-2*edge),width},paint.color);
+      fillGrayRect({rect.x,int16_t(rect.y+edge),width,int16_t(rect.height-2*edge)},paint.color);
+      fillGrayRect({int16_t(rect.right()-width),int16_t(rect.y+edge),width,int16_t(rect.height-2*edge)},paint.color);
+      for (int cy : {int(rect.y),int(rect.bottom()-edge)}) for (int cx : {int(rect.x),int(rect.right()-edge)})
+        for (int y=cy;y<cy+edge;++y) for (int x=cx;x<cx+edge;++x)
+          if ((radius==0 || insideRounded(rect,radius,corners,x,y)) &&
+              !(radius==0 ? inner.contains(x,y) : insideRounded(inner,radius,corners,x,y)))
+            plot(x,y,paint.color);
+      return;
+    }
     for (int16_t y = rect.y; y < rect.bottom(); ++y) {
       for (int16_t x = rect.x; x < rect.right(); ++x) {
         if (gray8_ && y>=rect.y+edge && y<rect.bottom()-edge && x>=rect.x+edge && x<rect.right()-edge) {

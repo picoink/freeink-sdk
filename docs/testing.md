@@ -78,6 +78,9 @@ negative bearings, clipping, padded rows, colors and overlapping text. Runtime
 glyphs now traverse physical rows after clipping once per glyph. Device timing
 is recorded separately by the PicoInk consumer; pixel equivalence alone does
 not establish a hardware speedup.
+Rounded-border straight spans also use batched fills; the corner and inner-radius
+predicates remain unchanged. The original scalar scene goldens cover the new
+path with clipping, corner masks, narrow rectangles and all four orientations.
 
 ## Battery gauge
 
