@@ -42,8 +42,12 @@ struct Frame {
   std::vector<Hit> hits;
   Json state;
 };
+struct StoragePaths {
+  std::string root, nvs, flash, tf, state;
+};
 struct Runtime {
-  std::string sdRoot, stateRoot, outputRoot;
+  StoragePaths storage;
+  std::string outputRoot;
   std::atomic<bool> stop{false}, sleeping{false}, ready{false}, powerPressed{false};
   std::atomic<uint64_t> heartbeat{0}, timeOffset{0};
   std::mutex frameMutex;
@@ -59,6 +63,8 @@ struct Runtime {
   bool rtcFired = false;
 };
 Runtime& runtime();
+void configureStorage(const std::string& root);
+Json storageInfo();
 uint64_t nowMs();
 uint64_t wallMs();
 void pauseMs(uint64_t ms);

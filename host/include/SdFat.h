@@ -6,13 +6,18 @@
 #include <memory>
 #include <string>
 using oflag_t = int;
+namespace freeink::host {
+struct StorageVolume;
+}
+namespace fs {
+class LittleFSFS;
+}
 struct FsBlockDeviceInterface {
   virtual ~FsBlockDeviceInterface() = default;
 };
 class FsFile {
  public:
   FsFile() = default;
-  static FsFile hostOpen(const std::string& path, int flags);
   explicit operator bool() const;
   bool isDirectory() const;
   void close();
@@ -23,14 +28,20 @@ class FsFile {
   }
   size_t write(const void* data, size_t size);
   bool seekSet(uint64_t pos);
+  bool seek(int64_t offset, int origin);
   uint64_t curPosition() const;
   uint64_t fileSize() const;
   bool sync();
   void flush() { sync(); }
   bool getName(char* dst, size_t size) const;
+  const char* name() const;
+  const char* path() const;
   FsFile openNextFile();
 
  private:
+  friend class SDCardManager;
+  friend class fs::LittleFSFS;
+  static FsFile hostOpen(freeink::host::StorageVolume& volume, const char* logical, int flags);
   struct Impl;
   std::shared_ptr<Impl> impl_;
 };

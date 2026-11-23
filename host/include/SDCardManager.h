@@ -17,8 +17,5 @@ class SDCardManager {
   std::vector<String> listFiles(const char* path, size_t maximum = 0);
   FsBlockDeviceInterface* detachFilesystemForRawAccess();
   bool shutdown();
-
- private:
-  bool mounted_ = false, detached_ = false;
 };
 #define SdMan SDCardManager::getInstance()

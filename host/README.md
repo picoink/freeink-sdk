@@ -4,7 +4,7 @@ This is an opt-in native backend for FreeInk consumers. It is never selected by
 PlatformIO or the SDK's ESP-IDF component. The PicoInk consumer builds it through
 `simulator/CMakeLists.txt` with `FREEINK_HOST` and the actual Metalio Plus profile.
 
-The native source list replaces display, input, SD and peripheral implementations
+The native source list replaces display, input, storage and peripheral implementations
 while compiling the production book, font and UI engines. Public peripheral
 headers and BoardConfig are reused; the display, input and SD compatibility
 headers expose the subset exercised by this consumer. These are application
@@ -37,6 +37,36 @@ Build the consumer, then run `ctest --test-dir simulator/.build/fast
 path containment, persisted preferences, input queue edges and the production
 UI transform in all four rotations. Existing library host suites remain required
 when changing those libraries. Hardware validation is recorded separately.
+
+## Storage volumes
+
+Call `configureStorage(root)` before firmware setup. It creates `nvs/`, `flash/`,
+`tf/` and `.state/` beneath that root, records their canonical paths in
+`runtime().storage`, and invalidates previous volume mounts. `storageInfo()`
+returns those paths for frontend diagnostics. There are no legacy path fallbacks.
+
+`SdMan` mounts `tf/`; `LittleFS.begin()` mounts `flash/`. File handles carry their
+own volume and mount generation, so TF detach/remount or shutdown does not affect
+Flash, and stale handles never become valid again on remount. Both volumes reject
+parent traversal and symlink escapes. The LittleFS subset includes `begin/end`,
+`open` with r/w/a and their + modes, `exists`, `mkdir/rmdir`, `remove/rename`, and
+basic file read/write, seek, flush, names and directory iteration. It models files,
+not a partition image; mount labels/max-open-files are not modeled, and
+`formatOnFail` never deletes host data. There is no raw formatting/erase API.
+The existing `sd*` fault and pressure settings apply only to TF. Flash supports
+`flash`, `flash_mount`, `flash_read`, `flash_write` and `flash_sync` faults without
+inheriting TF bandwidth/latency settings.
+
+`Preferences` uses `nvs/<namespace>.json`, containing a plain JSON object. It
+supports the consumer's unsigned 8/16-bit values and booleans, resets handle state
+on `begin/end`, and merges current on-disk keys before atomically replacing the
+file. Read-only handles cannot write. Missing writable namespaces use defaults;
+malformed JSON and non-regular files report errors and remain untouched. Changes
+made manually while stopped are loaded on the next `begin`/process start.
+
+`host_storage` verifies these behaviors in temporary directories, including
+independent Flash/TF ownership, namespace isolation, corrupt JSON preservation
+and file path boundaries. Storage test failures exit nonzero without aborting.
 
 ## Optional resource model
 
