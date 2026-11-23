@@ -23,4 +23,12 @@ int main(void) {
     digest(my_waveform_wipe_reveal());
     digest(my_waveform_wipe_reveal_short());
     for (int p = 0; p < 4; ++p) digest(my_waveform_wipe_gl(p));
+    // The full-quality white transition must never drive toward black during
+    // its erase phase, for any previous or target grayscale value.
+    const EpdWaveformPhases* white = my_waveform_wipe_gl(0)->mode_data[0]->range_data[0];
+    assert(white->phases == 68);
+    for (int f = 0; f < 20; ++f) for (int to = 0; to < 16; ++to) for (int old = 0; old < 16; ++old) {
+        const int action = (white->luts[(f*16+to)*4+old/4] >> (6-2*(old%4))) & 3;
+        assert(action == 0 || action == 2);
+    }
 }

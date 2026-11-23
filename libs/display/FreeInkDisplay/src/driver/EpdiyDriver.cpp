@@ -132,8 +132,8 @@ void EpdiyDriver::deepSleep(EpdBus& bus) {
 
 // Rails up only for the waveform; the panel is powered off between refreshes.
 // A differential update only drives pixels EPDiy's previous frame says changed,
-// so the first draw clears the glass and draws from white, and full refreshes
-// drive every pixel (the vendor firmware's sequence).
+// so the first draw clears the glass and draws from white. A board can supply
+// its white-conditioning waveform for subsequent full refreshes.
 bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
 #if CONFIG_PM_ENABLE
   esp_pm_lock_handle_t awake = nullptr;
@@ -146,7 +146,13 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
     err = epd_clear_checked();
     if (err == EPD_DRAW_SUCCESS) err = epd_hl_update_screen_from_white(&_hl, MODE_GC16, temperature());
   } else if (full) {
+    const auto* waveform = _hl.waveform;
+    if (_cfg.whiteRefreshWaveform) {
+      _hl.waveform = _cfg.whiteRefreshWaveform;
+      mode = _cfg.whiteRefreshMode;
+    }
     err = epd_hl_update_screen_full(&_hl, mode, temperature());
+    _hl.waveform = waveform;
   } else {
     err = epd_hl_update_screen(&_hl, mode, temperature());
   }

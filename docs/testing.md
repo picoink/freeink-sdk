@@ -144,6 +144,13 @@ bit-banged panel probe. The checks cover transfer
 sequences, grayscale uploads, refresh lifecycle, and power-state behavior for
 the drivers included in each harness.
 
+EPDiy additionally checks the optional board white-conditioning waveform: known
+full refreshes use it, ordinary grayscale updates restore the normal waveform,
+and a failed refresh still requires the original clear/recovery sequence. Metalio
+Plus reuses its existing full-quality 20-phase white erase plus 48-phase GL16
+reveal. The waveform suite checks every erase pulse stays neutral or drives
+toward white. This does not establish physical residual-image performance.
+
 For the board-profile and display-probe regression test, follow the
 [XteinkDetect host instructions](../libs/hardware/XteinkDetect/test/host/README.md).
 
