@@ -11,7 +11,7 @@ target_include_directories(freeink_host_config INTERFACE
   "${CMAKE_CURRENT_LIST_DIR}/include" "${CMAKE_CURRENT_LIST_DIR}/third_party"
   "${BOOK}/include" "${FONT}/include" "${UI}/include"
   "${SDK_ROOT}/libs/assets/Icons/include")
-foreach(lib BoardConfig BatteryMonitor FrontlightManager HapticManager AudioManager Microphone Rtc Imu PowerManager UsbMassStorage)
+foreach(lib InputManager BoardConfig BatteryMonitor FrontlightManager HapticManager AudioManager Microphone Rtc Imu PowerManager UsbMassStorage)
   target_include_directories(freeink_host_config INTERFACE "${SDK_ROOT}/libs/hardware/${lib}/include")
 endforeach()
 foreach(lib expat miniz libunibreak pngle tjpgd stb)

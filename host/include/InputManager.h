@@ -1,4 +1,5 @@
 #pragma once
+#include <OrderedInput.h>
 #include <array>
 #include <deque>
 #include <mutex>
@@ -21,7 +22,9 @@ class InputManager {
   enum class HostSource : uint8_t { Desktop, Protocol, Count };
   static constexpr unsigned long HOME_KEY_LONG_PRESS_MS = 700;
   void begin() {}
-  bool beginAsync(unsigned = 2, unsigned = 10);
+  bool beginAsync(unsigned = 2, unsigned = 10, uint8_t capacity = 32, bool ordered = false);
+  void setHomeLongPressMs(uint32_t ms) { if (!running_) homeLongPressMs_ = ms ? ms : 1; }
+  bool popEvent(freeink::OrderedInput&);
   bool endAsync();
   bool asyncRunning() const;
   bool prepareForDeepSleep() { return true; }
@@ -50,6 +53,11 @@ class InputManager {
 
  private:
   mutable std::mutex mutex_;
+  std::deque<freeink::OrderedInput> events_;
+  void publishEventLocked(freeink::OrderedInput);
+  bool ordered_ = false;
+  uint32_t eventSequence_ = 0, eventOverflow_ = 0, homeLongPressMs_ = 700;
+  uint8_t eventCapacity_ = 32;
   std::deque<uint8_t> keys_;
   std::deque<KeyEvent> edges_;
   bool edgeOverflow_ = false;

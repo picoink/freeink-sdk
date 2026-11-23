@@ -74,5 +74,31 @@ int main() {
   input.endAsync();
   input.hostPowerLevel(S::Protocol, false);
   assert(!input.isPowerButtonPhysicallyPressed());
+  // The new opt-in stream preserves ordering across input kinds.
+  input.setHomeLongPressMs(500);
+  input.beginAsync(2,10,4,true);
+  using E=freeink::OrderedInput;
+  E event;
+  input.hostTap(.2f,.3f);
+  input.hostKey(InputManager::BTN_DOWN,true);
+  input.hostSwipe(.1f,.2f,.8f,.2f);
+  input.hostKey(InputManager::BTN_DOWN,false);
+  uint32_t sequence=0;
+  for (auto kind : {E::Tap,E::Key,E::Swipe,E::Key}) {
+    assert(input.popEvent(event) && event.kind==kind && event.sequence>sequence);
+    sequence=event.sequence;
+  }
+  assert(!input.popEvent(event));
+  input.hostDeviceKey(K::TouchHome,true,S::Desktop);
+  runtime().timeOffset += 500;
+  assert(input.popEvent(event) && event.kind==E::Home && event.pressed);
+  input.hostDeviceKey(K::TouchHome,false,S::Desktop);
+  assert(!input.popEvent(event));
+  for (int i=0;i<8;++i) input.hostTap(.5f,.5f);
+  assert(input.popEvent(event) && event.kind==E::Reset && event.dropped==8);
+  assert(!input.popEvent(event));
+  input.hostTap(.5f,.5f);
+  assert(input.popEvent(event) && event.kind==E::Tap);
+  input.endAsync();
   std::cout << "Seven host keys, source merging, HOME holds, cancellation and raw power release passed\n";
 }

@@ -1,4 +1,5 @@
 #pragma once
+#include "OrderedInput.h"
 
 // FreeInk SDK — input abstraction.
 //
@@ -264,7 +265,10 @@ class InputManager {
   //
   // When async polling is active the app must NOT call update()/wasPressed()
   // itself; the task owns the edge state. Drain with popPress() instead.
-  void beginAsync(uint8_t taskPriority = 2, uint32_t pollMs = 15, uint8_t queueLen = 32);
+  void beginAsync(uint8_t taskPriority = 2, uint32_t pollMs = 15, uint8_t queueLen = 32, bool ordered = false);
+  // Configure before starting polling. Existing consumers retain the 700 ms default.
+  void setHomeLongPressMs(uint32_t ms) { if (!_asyncTask) homeLongPressMs_ = ms ? ms : 1; }
+  bool popEvent(freeink::OrderedInput&);
   // Cooperatively stop between polls, never while the worker owns the I2C bus.
   // On timeout the worker/queues remain owned; do not power down peripherals.
   bool endAsync(uint32_t timeoutMs = 2000);
@@ -329,6 +333,10 @@ class InputManager {
  private:
   static ButtonHook s_buttonHook;
 
+  QueueHandle_t _asyncEventQueue = nullptr;
+  std::atomic<uint32_t> eventOverflow_{0};
+  uint32_t eventSequence_ = 0, homeLongPressMs_ = 700;
+  void publishEvent(freeink::OrderedInput event);
   QueueHandle_t _asyncQueue = nullptr;
   QueueHandle_t _asyncKeyQueue = nullptr;
   std::atomic<bool> _asyncKeyOverflow{false};

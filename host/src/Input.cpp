@@ -7,8 +7,11 @@ constexpr uint16_t bit(InputManager::HostKey key) { return 1u << unsigned(key); 
 constexpr unsigned sourceCount = unsigned(InputManager::HostSource::Count);
 }  // namespace
 
-bool InputManager::beginAsync(unsigned, unsigned) {
+bool InputManager::beginAsync(unsigned, unsigned, uint8_t capacity, bool ordered) {
   std::lock_guard<std::mutex> lock(mutex_);
+  if (running_) return true;
+  ordered_ = ordered; eventCapacity_ = capacity;
+  events_.clear(); eventOverflow_ = eventSequence_ = 0;
   running_ = true;
   return true;
 }
@@ -16,6 +19,7 @@ bool InputManager::endAsync() {
   HostScope host;
   std::lock_guard<std::mutex> lock(mutex_);
   running_ = homeArmed_ = false;
+  events_.clear(); eventOverflow_ = 0;
   keys_.clear();
   edges_.clear(); edgeOverflow_ = false;
   homes_.clear();
@@ -50,8 +54,9 @@ bool InputManager::hostHeld(HostKey key) const {
 }
 void InputManager::pollHomeLocked() {
   if (running_ && homeArmed_ && !homeLongFired_ && homeHeldLocked() &&
-      millis() - homeAt_ >= HOME_KEY_LONG_PRESS_MS) {
+      millis() - homeAt_ >= homeLongPressMs_) {
     if (homes_.size() < 16) homes_.push_back(true);
+    freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Home; e.pressed = true; publishEventLocked(e);
     homeLongFired_ = true;
   }
 }
@@ -68,6 +73,7 @@ void InputManager::updateButtonsLocked() {
     if (down != pressed_[key] && running_) {
       if (edges_.size() < 32) edges_.push_back({uint32_t(millis()), uint8_t(key), down});
       else edgeOverflow_ = true;
+      freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Key; e.button = key; e.pressed = down; publishEventLocked(e);
     }
     if (down && !pressed_[key]) {
       if (running_ && keys_.size() < 32) keys_.push_back(key);
@@ -103,7 +109,10 @@ void InputManager::hostDeviceKey(HostKey key, bool down, HostSource source) {
     homeArmed_ = running_;
     homeLongFired_ = false;
   } else if (wasHome && !home) {
-    if (running_ && homeArmed_ && !homeLongFired_ && homes_.size() < 16) homes_.push_back(false);
+    if (running_ && homeArmed_ && !homeLongFired_) {
+      if (homes_.size() < 16) homes_.push_back(false);
+      freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Home; publishEventLocked(e);
+    }
     homeArmed_ = false;
   }
   updateButtonsLocked();
@@ -141,7 +150,10 @@ void InputManager::hostKey(uint8_t key, bool down) {
 void InputManager::hostHome(bool held) {
   HostScope host;
   std::lock_guard<std::mutex> lock(mutex_);
-  if (running_ && homes_.size() < 16) homes_.push_back(held);
+  if (running_) {
+    if (homes_.size() < 16) homes_.push_back(held);
+    freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Home; e.pressed = held; publishEventLocked(e);
+  }
 }
 bool InputManager::popHomeKey(bool& held) {
   HostScope host;
@@ -163,12 +175,18 @@ bool InputManager::popPress(uint8_t& key) {
 void InputManager::hostTap(float x, float y) {
   HostScope host;
   std::lock_guard<std::mutex> lock(mutex_);
-  if (running_ && taps_.size() < 32) taps_.push_back({x, y});
+  if (running_) {
+    if (taps_.size() < 32) taps_.push_back({x, y});
+    freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Tap; e.x = x; e.y = y; publishEventLocked(e);
+  }
 }
 void InputManager::hostSwipe(float x, float y, float x1, float y1) {
   HostScope host;
   std::lock_guard<std::mutex> lock(mutex_);
-  if (running_ && swipes_.size() < 16) swipes_.push_back({x, y, x1, y1});
+  if (running_) {
+    if (swipes_.size() < 16) swipes_.push_back({x, y, x1, y1});
+    freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Swipe; e.x = x; e.y = y; e.x1 = x1; e.y1 = y1; publishEventLocked(e);
+  }
 }
 bool InputManager::popTouchTap(float& x, float& y) {
   HostScope host;
@@ -191,4 +209,23 @@ bool InputManager::popSwipe(float& x, float& y, float& x1, float& y1) {
   x1 = points[2];
   y1 = points[3];
   return true;
+}
+
+void InputManager::publishEventLocked(freeink::OrderedInput event) {
+  if (!ordered_) return;
+  event.timestamp = millis(); event.sequence = ++eventSequence_;
+  if (events_.size() < eventCapacity_) events_.push_back(event);
+  else ++eventOverflow_;
+}
+bool InputManager::popEvent(freeink::OrderedInput& event) {
+  HostScope host;
+  std::lock_guard<std::mutex> lock(mutex_);
+  pollHomeLocked();
+  if (eventOverflow_) {
+    event = {}; event.kind = freeink::OrderedInput::Reset;
+    event.timestamp = millis(); event.dropped = eventOverflow_ + events_.size();
+    events_.clear(); eventOverflow_ = 0; return true;
+  }
+  if (events_.empty()) return false;
+  event = events_.front(); events_.pop_front(); return true;
 }
