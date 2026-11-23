@@ -35,6 +35,13 @@ int main() {
     for (size_t i=0;i<64;++i) assert(panel::framebuffer[i] == uint8_t((i*2%16) | ((i*2+1)%16)<<4));
     panel::release(); driver.displayFinish(bus,nullptr);
     assert(panel::lastMode == MODE_GL16 && driver.lastRefreshSucceeded());
+    for (unsigned base=0;base<256;base+=128) {
+      for (unsigned i=0;i<gray.size();++i) gray[i]=uint8_t(base+i);
+      driver.displayGray8Start(bus,gray.data(),16,RefreshMode::Fast);
+      driver.displayFinish(bus,nullptr);
+      for (unsigned i=0;i<64;++i)
+        assert(panel::framebuffer[i]==uint8_t(((base+2*i+8)/17) | (((base+2*i+9)/17)<<4)));
+    }
     panel::fail = true;
     driver.displayStart(bus, frame.data(), nullptr, RefreshMode::Full, false);
     driver.displayFinish(bus, nullptr);

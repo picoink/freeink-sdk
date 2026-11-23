@@ -30,6 +30,14 @@ namespace book {
 // (0 = black, 255 = white) and is valid only during the call.
 using ImageRowFn = bool (*)(void* user, uint16_t y, const uint8_t* gray, uint16_t width);
 
+// Optional synchronous backend. Declined may fall back; Stopped must never
+// restart decoding. All row pointers are borrowed for the callback only.
+class ImageBackend {
+ public:
+  enum class Result { Declined, Complete, Stopped };
+  virtual ~ImageBackend() = default;
+  virtual Result render(BookSource&,const ZipEntry&,const PageImage&,Arena&,ImageRowFn,void*)=0;
+};
 class ImageRenderer {
  public:
   // Renders `image` (a placement produced by layout or read from the page
@@ -37,7 +45,9 @@ class ImageRenderer {
   // released before returning; pngle additionally uses bounded transient
   // heap for its scanline buffer.
   static BookStatus render(BookSource& source, const ZipCatalog& zip, const PageImage& image,
-                           Arena& scratch, ImageRowFn rowFn, void* user);
+                           Arena& scratch, ImageRowFn rowFn, void* user, ImageBackend* backend=nullptr);
+  static BookStatus renderEntry(BookSource&, const ZipEntry&, const PageImage&, Arena&,
+                                ImageRowFn, void*, ImageBackend* backend=nullptr);
 };
 
 // Quantizes one grayscale row to 1 bit per pixel (MSB first, 1 = black)

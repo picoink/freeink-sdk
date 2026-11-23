@@ -50,6 +50,7 @@ struct FrameTarget {
   FrameRotation rotation = FrameRotation::None;
 };
 
+class ImageBackend;
 class PageRenderer {
  public:
   // Draws the page's text runs. Glyph advances and kerning replay exactly
@@ -63,11 +64,11 @@ class PageRenderer {
   // Draws the page's images (streaming decode + Bayer dither). `source`/
   // `zip` are the open book; scratch is released before returning.
   static BookStatus renderImages(const Page& page, BookSource& source, const ZipCatalog& zip,
-                                 Arena& scratch, const FrameTarget& target);
+                                 Arena& scratch, const FrameTarget& target, ImageBackend* backend=nullptr);
 
   // Text + images.
   static BookStatus render(const Page& page, FontChain& fonts, BookSource& source,
-                           const ZipCatalog& zip, Arena& scratch, const FrameTarget& target);
+                           const ZipCatalog& zip, Arena& scratch, const FrameTarget& target, ImageBackend* backend=nullptr);
 };
 
 }  // namespace book

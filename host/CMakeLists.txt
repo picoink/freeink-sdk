@@ -10,7 +10,7 @@ target_compile_definitions(freeink_host_config INTERFACE FREEINK_HOST=1 SIMULATO
 target_include_directories(freeink_host_config INTERFACE
   "${CMAKE_CURRENT_LIST_DIR}/include" "${CMAKE_CURRENT_LIST_DIR}/third_party"
   "${BOOK}/include" "${FONT}/include" "${UI}/include"
-  "${SDK_ROOT}/libs/assets/Icons/include")
+  "${SDK_ROOT}/libs/assets/Icons/include" "${SDK_ROOT}/libs/assets/FreeInkImage/include" "${SDK_ROOT}/libs/assets/ProgressiveJpeg/include")
 foreach(lib SDCardManager InputManager BoardConfig BatteryMonitor FrontlightManager HapticManager AudioManager Microphone Rtc Imu PowerManager UsbMassStorage)
   target_include_directories(freeink_host_config INTERFACE "${SDK_ROOT}/libs/hardware/${lib}/include")
 endforeach()
@@ -20,7 +20,7 @@ endforeach()
 target_include_directories(freeink_host_config INTERFACE "${FONT}/third_party/stb" "${FONT}/third_party/freetype/include")
 file(GLOB_RECURSE BOOK_SOURCES CONFIGURE_DEPENDS "${BOOK}/src/*.cpp" "${BOOK}/src/*.c")
 file(GLOB FONT_SOURCES CONFIGURE_DEPENDS "${FONT}/src/*.cpp" "${FONT}/src/freetype/*.c")
-add_library(freeink_reader_core STATIC ${BOOK_SOURCES} ${FONT_SOURCES} "${FONT}/src/FontAlloc.c" "${UI}/src/FreeInkUI.cpp")
+add_library(freeink_reader_core STATIC "${SDK_ROOT}/libs/assets/FreeInkImage/src/FreeInkImage.cpp" "${SDK_ROOT}/libs/assets/ProgressiveJpeg/src/ProgressiveJpeg.cpp" ${BOOK_SOURCES} ${FONT_SOURCES} "${FONT}/src/FontAlloc.c" "${UI}/src/FreeInkUI.cpp")
 set_source_files_properties("${FONT}/src/FontAlloc.c" PROPERTIES COMPILE_DEFINITIONS ESP_PLATFORM=1)
 target_link_libraries(freeink_reader_core PUBLIC freeink_host_config)
 if(PICO_STRESS)

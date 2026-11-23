@@ -1,0 +1,8 @@
+{
+  "name": "FreeInkImage",
+  "version": "0.1.0",
+  "description": "Optional bounded S31 JPEG/PPA and progressive JPEG image backend",
+  "dependencies": {"FreeInkBook": "*", "ProgressiveJpeg": "*", "BoardConfig": "*"},
+  "platforms": "*",
+  "frameworks": "*"
+}

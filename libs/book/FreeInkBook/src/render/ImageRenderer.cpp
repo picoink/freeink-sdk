@@ -1,3 +1,4 @@
+#include <render/ImageRowScaler.h>
 // FreeInkBook — streaming PNG/JPEG decode → scaled grayscale rows.
 
 #include "render/ImageRenderer.h"
@@ -14,77 +15,6 @@ namespace freeink {
 namespace book {
 
 namespace {
-
-// Maps completed source rows to output rows with box-filter averaging: every
-// source pixel contributes to exactly one output pixel, so downscales keep
-// tonal detail instead of sampling every Nth pixel (nearest-neighbor's
-// aliasing reads as blur/jaggies on photos).
-struct RowScaler {
-  uint16_t srcW = 0;
-  uint16_t srcH = 0;
-  uint16_t dstW = 0;
-  uint16_t dstH = 0;
-  uint8_t* dstRow = nullptr;
-  uint32_t* sums = nullptr;    // dstW accumulators
-  uint16_t* counts = nullptr;  // dstW sample counts
-  ImageRowFn rowFn = nullptr;
-  void* user = nullptr;
-  uint32_t nextDst = 0;
-  bool stopped = false;
-  bool failed = false;
-
-  void resetAccum() {
-    memset(sums, 0, static_cast<size_t>(dstW) * sizeof(uint32_t));
-    memset(counts, 0, static_cast<size_t>(dstW) * sizeof(uint16_t));
-  }
-
-  bool emitAveraged() {
-    for (uint32_t x = 0; x < dstW; ++x) {
-      dstRow[x] = counts[x] != 0 ? static_cast<uint8_t>(sums[x] / counts[x]) : 0xFF;
-    }
-    if (!rowFn(user, static_cast<uint16_t>(nextDst), dstRow, dstW)) {
-      stopped = true;
-      return false;
-    }
-    ++nextDst;
-    resetAccum();
-    return true;
-  }
-
-  // Feeds one completed source row; emits output rows as their source bands
-  // complete.
-  bool feedSourceRow(uint32_t srcY, const uint8_t* gray) {
-    // Emit any output rows whose source band ended before this row.
-    while (nextDst < dstH &&
-           srcY >= static_cast<uint64_t>(nextDst + 1) * srcH / dstH) {
-      if (!emitAveraged()) return false;
-    }
-    if (nextDst >= dstH) return true;
-    for (uint32_t x = 0; x < srcW; ++x) {
-      const uint32_t dx = static_cast<uint64_t>(x) * dstW / srcW;
-      sums[dx] += gray[x];
-      ++counts[dx];
-    }
-    // Last source row of the image: flush the final band.
-    if (srcY + 1 == srcH) {
-      while (nextDst < dstH) {
-        if (!emitAveraged()) return false;
-      }
-    }
-    return true;
-  }
-};
-
-bool initScaler(RowScaler& scaler, Arena& scratch) {
-  scaler.dstRow = static_cast<uint8_t*>(scratch.alloc(scaler.dstW, 1));
-  scaler.sums = scratch.allocArray<uint32_t>(scaler.dstW);
-  scaler.counts = scratch.allocArray<uint16_t>(scaler.dstW);
-  if (scaler.dstRow == nullptr || scaler.sums == nullptr || scaler.counts == nullptr) {
-    return false;
-  }
-  scaler.resetAccum();
-  return true;
-}
 
 uint8_t rgbaToGray(const uint8_t rgba[4]) {
   const int32_t gray =
@@ -712,24 +642,35 @@ void ditherRowOrdered(const uint8_t* gray, uint16_t width, uint16_t y, uint8_t* 
 
 BookStatus ImageRenderer::render(BookSource& source, const ZipCatalog& zip,
                                  const PageImage& image, Arena& scratch, ImageRowFn rowFn,
-                                 void* user) {
+                                 void* user, ImageBackend* backend) {
+  const auto* entry=zip.find(image.href);
+  if (!entry) return BookStatus::NotFound;
+  return renderEntry(source,*entry,image,scratch,rowFn,user,backend);
+}
+
+BookStatus ImageRenderer::renderEntry(BookSource& source, const ZipEntry& entry,
+    const PageImage& image, Arena& scratch, ImageRowFn rowFn, void* user, ImageBackend* backend) {
   if (image.width == 0 || image.height == 0) return BookStatus::Unsupported;
-  const ZipEntry* entry = zip.find(image.href);
-  if (entry == nullptr) return BookStatus::NotFound;
 
   const size_t marked = scratch.mark();
+  if (backend) {
+    const auto result=backend->render(source,entry,image,scratch,rowFn,user);
+    scratch.release(marked);
+    if (result==ImageBackend::Result::Complete) return BookStatus::Ok;
+    if (result==ImageBackend::Result::Stopped) return BookStatus::IoError;
+  }
   ImageInfo info;
-  BookStatus status = probeImage(source, *entry, scratch, &info);
+  BookStatus status = probeImage(source, entry, scratch, &info);
   if (status == BookStatus::Ok) {
     switch (info.kind) {
       case ImageInfo::Kind::Png:
-        status = renderPng(source, *entry, image, info.width, info.height, scratch, rowFn,
+        status = renderPng(source, entry, image, info.width, info.height, scratch, rowFn,
                            user);
         break;
       case ImageInfo::Kind::Jpeg:
         status = info.progressive
-                     ? renderJpegProgressive(source, *entry, image, scratch, rowFn, user)
-                     : renderJpeg(source, *entry, image, scratch, rowFn, user);
+                     ? renderJpegProgressive(source, entry, image, scratch, rowFn, user)
+                     : renderJpeg(source, entry, image, scratch, rowFn, user);
         break;
       case ImageInfo::Kind::Unknown:
         status = BookStatus::Unsupported;

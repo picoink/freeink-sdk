@@ -1323,6 +1323,26 @@ void testImages() {
 
   // Render scaled to half size — dimensions and pattern still hold.
   {
+    struct Backend : ImageBackend {
+      Result result=Result::Declined; unsigned calls=0;
+      Result render(BookSource&,const ZipEntry&,const PageImage&,Arena&,ImageRowFn,void*) override {
+        ++calls; return result;
+      }
+    } backend;
+    GrayCapture cap{};
+    CHECK_EQ(static_cast<int>(ImageRenderer::render(opened.source,opened.book.zip(),png,
+      opened.scratch,GrayCapture::onRow,&cap,&backend)),static_cast<int>(BookStatus::Ok));
+    CHECK_EQ(cap.rows,48); CHECK_EQ(backend.calls,1u);
+    backend.result=ImageBackend::Result::Stopped; cap={};
+    CHECK_EQ(static_cast<int>(ImageRenderer::render(opened.source,opened.book.zip(),png,
+      opened.scratch,GrayCapture::onRow,&cap,&backend)),static_cast<int>(BookStatus::IoError));
+    CHECK_EQ(cap.rows,0); // Cancellation must not restart the software decoder.
+    backend.result=ImageBackend::Result::Complete;
+    CHECK_EQ(static_cast<int>(ImageRenderer::render(opened.source,opened.book.zip(),png,
+      opened.scratch,GrayCapture::onRow,&cap,&backend)),static_cast<int>(BookStatus::Ok));
+    CHECK_EQ(cap.rows,0); CHECK_EQ(backend.calls,3u);
+  }
+  {
     PageImage half = png;
     half.width = 32;
     half.height = 24;

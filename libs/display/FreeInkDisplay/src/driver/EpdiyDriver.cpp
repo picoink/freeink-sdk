@@ -25,6 +25,12 @@ namespace {
 // EPDiy 4 bpp: two pixels per byte, even pixel in the low nibble, 0 = black,
 // 15 = white.
 constexpr uint8_t kBlack = 0x0, kDark = 0x5, kLight = 0xA, kWhite = 0xF;
+constexpr std::array<uint8_t,256> grayNibbles() {
+  std::array<uint8_t,256> values{};
+  for (unsigned i=0;i<values.size();++i) values[i]=(i+8)/17;
+  return values;
+}
+constexpr auto gGrayNibble=grayNibbles();
 
 // One 1 bpp byte (MSB = leftmost pixel, set = white) -> four 4 bpp bytes.
 constexpr std::array<uint32_t, 256> buildExpand() {
@@ -183,10 +189,18 @@ bool EpdiyDriver::displayGray8Start(EpdBus& bus, const uint8_t* pixels, uint16_t
   auto* dst = epd_hl_get_framebuffer(&_hl);
   for (uint16_t y = 0; y < g.height; ++y) {
     const auto* row = pixels + size_t(y)*stride;
-    for (uint16_t x = 0; x < g.width; x += 2) {
-      const uint8_t even = (uint16_t(row[x])+8)/17;
-      const uint8_t odd = (uint16_t(row[x+1])+8)/17;
-      dst[(size_t(y)*g.width+x)/2] = even | (odd << 4);
+    auto* output=dst+size_t(y)*g.width/2;
+    uint16_t x=0;
+    for (;x+8<=g.width;x+=8) {
+      uint32_t a,b; memcpy(&a,row+x,4); memcpy(&b,row+x+4,4);
+      const uint32_t packed=uint32_t(gGrayNibble[a&255]) | (uint32_t(gGrayNibble[(a>>8)&255])<<4) |
+        (uint32_t(gGrayNibble[(a>>16)&255])<<8) | (uint32_t(gGrayNibble[a>>24])<<12) |
+        (uint32_t(gGrayNibble[b&255])<<16) | (uint32_t(gGrayNibble[(b>>8)&255])<<20) |
+        (uint32_t(gGrayNibble[(b>>16)&255])<<24) | (uint32_t(gGrayNibble[b>>24])<<28);
+      memcpy(output+x/2,&packed,4);
+    }
+    for (;x<g.width;x+=2) {
+      output[x/2]=gGrayNibble[row[x]] | (gGrayNibble[row[x+1]]<<4);
     }
   }
   _lastBaseMode = mode == RefreshMode::Fast ? MODE_GL16 : MODE_GC16;
