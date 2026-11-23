@@ -253,3 +253,8 @@ validation, 2036 era rollover, DNS failure, timeouts, cancellation and stale res
 Both lifecycle suites enable undefined-behavior checks. PAN additionally accepts
 `SANITIZERS=address,undefined` when the host compiler/runtime supports it.
 Hardware pairing, DHCP, power and network access require a real device.
+
+The desktop `host_volumes` target also exercises the shared VolumeStorage
+facade: separate TF/internal contents, moves and handle accounting, exclusive
+reservation, remount without formatting, path validation and concurrent callers.
+The host internal directory models file ownership, not FAT/WL flash behavior.
