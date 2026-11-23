@@ -26,6 +26,21 @@ std::atomic<UsbMassStorage*> gOwner{nullptr};
 std::atomic<FsBlockDeviceInterface*> gDev{nullptr};
 uint16_t gBlockSize = 512;
 uint8_t gSectorScratch[4096];
+bool gEventsRegistered=false;
+
+void mountedEvent(void*,esp_event_base_t,int32_t,void*) {
+  std::lock_guard<std::mutex> lock(gIoMutex);
+  if (gAccepting.load()) if (auto* owner=gOwner.load()) owner->markConnected();
+}
+
+void routeStorage(bool active) {
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  // Rev1.4 routes the cable between independent HS storage and debug PHYs.
+  pinMode(36, OUTPUT); digitalWrite(36, active ? LOW : HIGH);
+#else
+  (void)active;
+#endif
+}
 
 bool isRangeValid(FsBlockDeviceInterface* dev, const uint32_t lba, const uint32_t offset, const uint32_t bufsize) {
   if (!dev || bufsize == 0 || bufsize > INT32_MAX) return false;
@@ -142,9 +157,11 @@ bool UsbMassStorage::begin(FsBlockDeviceInterface* dev, uint16_t sectorSize) {
   if (_active || gOwner.load() || !dev || dev->sectorCount() == 0 ||
       (sectorSize != 512 && sectorSize != 4096)) return false;
   gBlockSize = sectorSize;
-#if FREEINK_DEVICE_METALIO_EINK4_PLUS
-  pinMode(36, OUTPUT); digitalWrite(36, LOW);  // Rev1.4 USB switch: device path.
-#endif
+  routeStorage(true);
+  if (!gEventsRegistered) {
+    USB.onEvent(ARDUINO_USB_STARTED_EVENT,mountedEvent);
+    gEventsRegistered=true;
+  }
 
   gDev.store(dev);
   gOwner.store(this);
@@ -163,6 +180,7 @@ bool UsbMassStorage::begin(FsBlockDeviceInterface* dev, uint16_t sectorSize) {
     gOwner.store(nullptr);
     gDev.store(nullptr);
     _state.store(UsbMassStorageState::Idle);
+    routeStorage(false);
     return false;
   }
   if (!USB.begin()) {
@@ -170,6 +188,7 @@ bool UsbMassStorage::begin(FsBlockDeviceInterface* dev, uint16_t sectorSize) {
     gOwner.store(nullptr);
     gDev.store(nullptr);
     _state.store(UsbMassStorageState::Idle);
+    routeStorage(false);
     return false;
   }
   _active = true;
@@ -194,6 +213,7 @@ void UsbMassStorage::end() {
   // end() clears them without synchronizing with TinyUSB's SCSI dispatcher.
   _state.store(UsbMassStorageState::Idle);
   _hostSeen.store(false);
+  routeStorage(false); // Restore debug only after in-flight storage I/O drains.
 }
 
 UsbMassStorageState UsbMassStorage::state() const {
@@ -209,7 +229,9 @@ UsbMassStorageState UsbMassStorage::state() const {
   // removal so the application can safely reclaim its raw storage session.
   if (current == UsbMassStorageState::IoError) return current;
 
-  _hostSeen.store(true);
+  // A soft disconnect does not immediately clear TinyUSB's old configured
+  // flag. Only a fresh mount callback or real I/O establishes this session.
+  if (!_hostSeen.load()) return UsbMassStorageState::WaitingForHost;
   auto expected = UsbMassStorageState::WaitingForHost;
   _state.compare_exchange_strong(expected, UsbMassStorageState::Connected);
   return _state.load();
@@ -223,6 +245,12 @@ bool UsbMassStorage::hostConnected() const {
 bool UsbMassStorage::disconnectHost() const { return _active && tud_disconnect(); }
 
 bool UsbMassStorage::hostSuspended() const { return _active && tud_mounted() && tud_suspended(); }
+
+void UsbMassStorage::markConnected() const {
+  _hostSeen.store(true);
+  auto expected=UsbMassStorageState::WaitingForHost;
+  _state.compare_exchange_strong(expected,UsbMassStorageState::Connected);
+}
 
 void UsbMassStorage::markAccessed() const {
   _hostSeen.store(true);

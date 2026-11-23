@@ -1,4 +1,5 @@
 #include <UsbMassStorage.h>
+#include <Arduino.h>
 #include <USB.h>
 #include <USBMSC.h>
 #include <array>
@@ -42,9 +43,16 @@ int main() {
   UsbMassStorage usb, second;
   assert(!usb.begin(nullptr));
   mscBeginOk = false; assert(!usb.begin(&disk) && !media); mscBeginOk = true;
+  assert(usbRoute==HIGH);
   usbBeginOk = false; assert(!usb.begin(&disk) && !media); usbBeginOk = true;
+  assert(usbRoute==HIGH);
   assert(usb.begin(&disk) && !second.begin(&disk));
+  assert(usbRoute==(FREEINK_DEVICE_METALIO_EINK4_PLUS ? LOW : HIGH));
   mounted = true;
+  assert(usb.state()==UsbMassStorageState::WaitingForHost); // Stale previous-session flag.
+  mounted = false;
+  assert(usb.state()==UsbMassStorageState::WaitingForHost); // Delayed disconnect cannot end this session.
+  mounted = true; mountEvent(nullptr,nullptr,ARDUINO_USB_STARTED_EVENT,nullptr);
   assert(usb.state() == UsbMassStorageState::Connected);
   std::array<uint8_t, 700> payload, result;
   for (size_t i = 0; i < payload.size(); ++i) payload[i] = uint8_t(i);
@@ -56,6 +64,7 @@ int main() {
   assert(usb.state() == UsbMassStorageState::IoError);
   assert(readCallback(0, 0, result.data(), 0) == -1);
   usb.end(); assert(!media && readCallback(0, 0, result.data(), 512) == -1);
+  assert(usbRoute==HIGH);
   assert(usb.begin(&disk)); mounted = true;
   disk.syncOk = false;
   assert(!stopCallback(0, false, true) && usb.state() == UsbMassStorageState::IoError);
@@ -69,8 +78,10 @@ int main() {
   { std::unique_lock<std::mutex> lock(disk.mutex); disk.cv.wait(lock, [&] { return disk.entered; }); }
   auto stop = std::async(std::launch::async, [&] { usb.end(); });
   assert(stop.wait_for(30ms) == std::future_status::timeout); // Must wait for the callback, even after disconnect.
+  assert(usbRoute==(FREEINK_DEVICE_METALIO_EINK4_PLUS ? LOW : HIGH));
   { std::lock_guard<std::mutex> lock(disk.mutex); disk.block = false; disk.cv.notify_all(); }
   assert(read.get() == 512); stop.get();
+  assert(usbRoute==HIGH);
   assert(readCallback(0, 0, result.data(), 512) == -1);
   assert(second.begin(&disk)); second.end();
   disk.sectorSize = 4096;

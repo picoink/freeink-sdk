@@ -15,6 +15,9 @@ int main() {
   readFail = false;
   assert(card.begin(pins) && card.sectorCount() == 64 && hosts == 1);
   assert(card.begin(pins) && hosts == 1);
+  allocationFails = true;
+  assert(card.begin(pins) && hosts == 1 && dmaBuffers == 1); // USB return reuses the live DMA buffer.
+  allocationFails = false;
   std::array<uint8_t, 512 * 9 + 1> buffer{};
   assert(card.readSectors(1, buffer.data() + 1, 9)); // Unaligned caller uses DMA bounce buffer.
   assert(card.writeSectors(1, buffer.data() + 1, 9) && largestTransfer == 8);

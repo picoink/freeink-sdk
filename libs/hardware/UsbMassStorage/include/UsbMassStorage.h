@@ -55,6 +55,7 @@ class UsbMassStorage {
   bool disconnectHost() const;
 
   // Called by the TinyUSB callbacks to publish the most recent host event.
+  void markConnected() const;
   void markAccessed() const;
   void markEjected() const;
   void markIoError() const;

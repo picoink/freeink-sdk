@@ -48,12 +48,8 @@ bool SDCardManager::begin() {
   // The SD power-enable (sd.powerEnable) is driven by SdmmcBlockDevice itself, which
   // reproduces the OEM's timed HIGH->LOW power-cycle around each mount attempt — do
   // NOT assert it here (holding it HIGH going in breaks that reset sequence).
-  if (_dev) {
-    // detachFilesystemForRawAccess() intentionally keeps the host and card
-    // alive for USB-MSC. Tear that session down before mounting the volume
-    // again, otherwise sdmmc_host_init() rejects the second initialization.
-    _dev->end();
-  } else {
+  const bool retainedCard = _dev && _dev->sectorCount();
+  if (!_dev) {
     _dev = new (std::nothrow) freeink::SdmmcBlockDevice();
     if (!_dev) {
       if (Serial) Serial.printf("[%lu] [SD] SDMMC block-device allocation failed\n", millis());
@@ -67,7 +63,16 @@ bool SDCardManager::begin() {
     cachedUsedBytesValid = false;
     return false;
   }
-  if (!_vol.begin(_dev)) {
+  // USB only detached the filesystem. Reuse the live card/host and its DMA
+  // buffer; begin() is idempotent while the card is active. Reallocating the
+  // host here can fail after the USB stack fragments scarce internal DMA RAM.
+  bool mounted = _vol.begin(_dev);
+  if (!mounted && retainedCard) {
+    // A removed/replaced card or failed transport still gets one cold retry.
+    _vol.end(); _dev->end();
+    mounted = _dev->begin(BoardConfig::ACTIVE.sdmmc) && _vol.begin(_dev);
+  }
+  if (!mounted) {
     if (Serial) {
       // Which read failed: the MBR, or the first partition's boot sector.
       static uint8_t sec[512];

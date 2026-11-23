@@ -241,6 +241,19 @@ standard suite also includes CX25601N setup, quantization, status, recharge and
 initialization fault injection. All of these complement, rather than replace,
 the consumer build and physical board checks.
 
+USB tests also compile the Metalio switch routing: failed starts and completed
+teardown restore the debug PHY, while in-flight storage callbacks keep ownership
+until drained. Re-entry ignores a stale TinyUSB configured flag until a fresh
+mount event or actual I/O. The SDMMC suite checks that an active card retains its
+DMA buffer when allocation is unavailable. Filesystem remount after MSC reuses
+that active card, with one cold retry if mounting fails.
+
+Physical PicoInk validation alternated internal FAT and TF exports twice without
+resetting. All four volumes mounted on the host, safely ejected, restored the
+debug connection and returned to Reader with SD available. The retained SD DMA
+buffer allowed remount even with a largest free DMA block of only 2,548 bytes.
+These observations are separate from host tests and the Metalio firmware build.
+
 ## Application PSRAM and waveform storage
 
 The host resource suite (`host_resources` in PicoInk's stress simulator build)
