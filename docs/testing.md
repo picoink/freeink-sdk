@@ -205,3 +205,21 @@ transaction, checking that the adapter still reports failure. BatteryMonitor's
 standard suite also includes CX25601N setup, quantization, status, recharge and
 initialization fault injection. All of these complement, rather than replace,
 the consumer build and physical board checks.
+
+## Application PSRAM and waveform storage
+
+The host resource suite (`host_resources` in PicoInk's stress simulator build)
+checks `ApplicationMemory.h`: construction and destruction of external arrays,
+zero initialization, preservation on failure and no internal fallback when
+PSRAM is exhausted. The total-capacity query must remain stable as free space
+changes, so font allocation cannot mistake exhaustion for a no-PSRAM board.
+
+```sh
+sh libs/hardware/BoardMetalioEInk4Plus/test/host/run.sh
+```
+
+The waveform test compares all 15 mode/profile digests to the pre-migration
+`23701d2` baseline and checks external allocation capabilities. It does not
+validate panel timing or optical output. For hosts where the ASan runtime cannot
+start, the font runner accepts an explicit `FREEINK_TEST_SANITIZERS` override;
+record this limitation separately from passing UBSan tests.

@@ -45,7 +45,7 @@ if(PICO_STRESS)
   add_executable(freeink_host_memory_test tests/memory.cpp tests/allocation.c tests/cpu.cpp)
   target_compile_options(freeink_host_memory_test PRIVATE -UNDEBUG)
   set_source_files_properties(tests/cpu.cpp PROPERTIES COMPILE_OPTIONS -fsanitize-coverage=trace-pc-guard)
-  target_link_libraries(freeink_host_memory_test PRIVATE freeink_host)
+  target_link_libraries(freeink_host_memory_test PRIVATE freeink_host freeink_reader_core)
   add_test(NAME host_resources COMMAND freeink_host_memory_test)
 endif()
 

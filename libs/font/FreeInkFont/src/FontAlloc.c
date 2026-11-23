@@ -5,19 +5,18 @@
 #if defined(ESP_PLATFORM)
 #include "esp_heap_caps.h"
 
-// PSRAM first, internal heap as fallback. heap_caps_malloc(MALLOC_CAP_SPIRAM)
-// returns NULL when no PSRAM is fitted (or it is exhausted), so the fallback
-// also covers no-PSRAM boards transparently.
+// Internal RAM is a compatibility path only for boards without PSRAM. A full
+// external heap must not consume memory reserved for DMA and system threads.
+static unsigned font_caps(void) {
+  return (heap_caps_get_total_size(MALLOC_CAP_SPIRAM) ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL)
+      | MALLOC_CAP_8BIT;
+}
 void* fiFontMalloc(size_t size) {
-  void* p = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
-  if (p == NULL) p = heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  return p;
+  return heap_caps_malloc(size, font_caps());
 }
 
 void* fiFontRealloc(void* ptr, size_t size) {
-  void* p = heap_caps_realloc(ptr, size, MALLOC_CAP_SPIRAM);
-  if (p == NULL && size != 0) p = heap_caps_realloc(ptr, size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  return p;
+  return heap_caps_realloc(ptr, size, font_caps());
 }
 
 void fiFontFree(void* ptr) { heap_caps_free(ptr); }

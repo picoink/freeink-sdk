@@ -15,4 +15,5 @@ static inline void* heap_caps_calloc(size_t n, size_t s, unsigned c) {
 static inline void* heap_caps_realloc(void* p, size_t n, unsigned c) { return host_caps_realloc(p, n, c); }
 static inline void heap_caps_free(void* p) { host_free(p); }
 static inline size_t heap_caps_get_free_size(unsigned c) { return host_heap_free(c); }
+static inline size_t heap_caps_get_total_size(unsigned c) { return host_heap_total(c); }
 static inline size_t heap_caps_get_largest_free_block(unsigned c) { return host_heap_largest(c); }
