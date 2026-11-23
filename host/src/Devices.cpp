@@ -246,8 +246,8 @@ void HapticManager::stop() {
   setDevice("haptic_intensity", number(0));
 }
 bool HapticManager::isPlaying() const { return hapticEnd > nowMs(); }
-bool UsbMassStorage::begin(FsBlockDeviceInterface* d) {
-  if (!d || fault("usb")) return false;
+bool UsbMassStorage::begin(FsBlockDeviceInterface* d, uint16_t sectorSize) {
+  if (_active || !d || (sectorSize != 512 && sectorSize != 4096) || fault("usb")) return false;
   _active = true;
   setDevice("usb_state", number(int(UsbMassStorageState::WaitingForHost)));
   return true;

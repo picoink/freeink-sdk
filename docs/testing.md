@@ -258,3 +258,8 @@ The desktop `host_volumes` target also exercises the shared VolumeStorage
 facade: separate TF/internal contents, moves and handle accounting, exclusive
 reservation, remount without formatting, path validation and concurrent callers.
 The host internal directory models file ownership, not FAT/WL flash behavior.
+
+The USB MSC suite also compiles `FlashUsbStorage` against a deterministic
+wear-levelling backend. It covers native 4096-byte FAT sectors, partition/bounds
+validation, erase failures and remount persistence. These host checks do not
+replace real USB host enumeration, flash wear-levelling or cable-removal tests.

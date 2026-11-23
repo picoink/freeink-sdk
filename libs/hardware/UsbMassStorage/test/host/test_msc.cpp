@@ -18,7 +18,8 @@ extern "C" bool tud_disconnect() { mounted = false; return true; }
 extern "C" bool tud_connect() { return true; }
 class Disk : public FsBlockDeviceInterface {
  public:
-  std::array<uint8_t, 2048> bytes{};
+  std::array<uint8_t, 4*4096> bytes{};
+  size_t sectorSize = 512;
   std::mutex mutex;
   std::condition_variable cv;
   bool block = false, entered = false, fail = false, syncOk = true;
@@ -29,11 +30,11 @@ class Disk : public FsBlockDeviceInterface {
     std::unique_lock<std::mutex> lock(mutex);
     entered = true; cv.notify_all(); cv.wait(lock, [&] { return !block; });
     if (fail || sector + count > 4) return false;
-    memcpy(data, bytes.data() + sector * 512, count * 512); return true;
+    memcpy(data, bytes.data() + sector * sectorSize, count * sectorSize); return true;
   }
   bool writeSectors(Sector_t sector, const uint8_t* data, size_t count) override {
     if (fail || sector + count > 4) return false;
-    memcpy(bytes.data() + sector * 512, data, count * 512); return true;
+    memcpy(bytes.data() + sector * sectorSize, data, count * sectorSize); return true;
   }
 };
 int main() {
@@ -72,5 +73,14 @@ int main() {
   assert(read.get() == 512); stop.get();
   assert(readCallback(0, 0, result.data(), 512) == -1);
   assert(second.begin(&disk)); second.end();
+  disk.sectorSize = 4096;
+  assert(!usb.begin(&disk,1024));
+  assert(usb.begin(&disk,4096) && advertisedSectorSize == 4096);
+  disk.bytes.fill(0xA5);
+  assert(writeCallback(0,4000,payload.data(),700) == 700);
+  assert(readCallback(0,4000,result.data(),700) == 700 && result == payload);
+  assert(disk.bytes[3999] == 0xA5 && disk.bytes[4700] == 0xA5);
+  assert(readCallback(3,4000,result.data(),700) == -1);
+  usb.end();
   puts("MSC ranges, partial sectors, failures, eject, re-entry and concurrent callback drain passed");
 }

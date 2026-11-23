@@ -29,7 +29,8 @@ namespace freeink {
 
 class UsbMassStorage {
  public:
-  bool begin(FsBlockDeviceInterface* dev);
+  // Logical sectors must match the backend (TF: 512; wear-levelled FAT: 4096).
+  bool begin(FsBlockDeviceInterface* dev, uint16_t sectorSize = 512);
   void end();
 
   bool active() const { return _active; }
