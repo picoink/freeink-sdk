@@ -20,6 +20,7 @@ def build(board, device_macro, test_cpp, directory):
             shutil.copy2(LIB / f"src/driver/{name}Driver.{ext}", root / f"src/driver/{name}Driver.{ext}")
     shutil.copy2(LIB / "src/driver/PanelDriver.h", root / "src/driver/PanelDriver.h")
     shutil.copy2(LIB / "include/GrayscaleCapabilities.h", root / "include/GrayscaleCapabilities.h")
+    shutil.copy2(LIB / "include/RefreshMetrics.h", root / "include/RefreshMetrics.h")
     for name in ("Ssd1677Luts.h", "Ssd2677Luts.h"):
         shutil.copy2(LIB / f"src/lut/{name}", root / f"src/lut/{name}")
     shutil.copy2(HERE / "pro_stubs/EpdBus.h", root / "src/bus/EpdBus.h")

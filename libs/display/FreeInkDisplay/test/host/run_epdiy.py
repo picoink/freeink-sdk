@@ -14,15 +14,16 @@ with tempfile.TemporaryDirectory(prefix="freeink-epdiy-") as directory:
         (root / folder).mkdir(parents=True, exist_ok=True)
     for name in ("EpdiyDriver.cpp", "EpdiyDriver.h", "PanelDriver.h"):
         shutil.copy2(LIB / "src/driver" / name, root / "src/driver" / name)
-    for name in ("EpdiyConfig.h", "GrayscaleCapabilities.h"):
+    for name in ("EpdiyConfig.h", "GrayscaleCapabilities.h", "RefreshMetrics.h"):
         shutil.copy2(LIB / "include" / name, root / "include" / name)
     shutil.copy2(HERE / "pro_stubs/EpdBus.h", root / "src/bus/EpdBus.h")
     for source in (HERE / "epdiy_stubs").rglob("*.h"):
         shutil.copy2(source, root / source.relative_to(HERE / "epdiy_stubs"))
+    shutil.copy2(LIB.parent / "epdiy/src/epd_metrics.h", root / "epd_metrics.h")
     exe = root / "epdiy"
     subprocess.run([os.environ.get("CXX", "c++"), "-std=c++17", "-pthread",
                     "-Wall", "-Wextra", "-Wno-unused-parameter", "-DFREEINK_DRIVER_EPDIY=1",
                     "-DFREEINK_EPDIY_CONFIG=testConfig", "-I"+str(root), "-I"+str(root / "include"),
-                    str(HERE / "test_epdiy.cpp"), str(root / "src/driver/EpdiyDriver.cpp"),
+                    str(HERE / "test_epdiy.cpp"), str(LIB.parent / "epdiy/src/epd_metrics.c"), str(root / "src/driver/EpdiyDriver.cpp"),
                     "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=15)

@@ -15,6 +15,7 @@
 #include <Arduino.h>
 
 #include "../../include/GrayscaleCapabilities.h"
+#include "../../include/RefreshMetrics.h"
 #include "../bus/EpdBus.h"
 
 namespace freeink {
@@ -67,6 +68,7 @@ class PanelDriver {
   virtual bool supportsAsyncDisplay() const { return false; }
   // External-bus drivers may finish on a worker rather than a GPIO BUSY pin.
   virtual bool refreshBusy(EpdBus& bus) const { return bus.isBusy(); }
+  virtual RefreshMetrics lastRefreshMetrics() const { return {}; }
   virtual bool lastRefreshSucceeded() const { return true; }
   virtual bool supportsGray8() const { return false; }
   // Borrowed luminance target (0 black, 255 white). A deferred driver must copy

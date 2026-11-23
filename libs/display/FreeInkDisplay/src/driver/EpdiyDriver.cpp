@@ -10,6 +10,7 @@
 
 #include <cstring>
 #include <array>
+#include <epd_metrics.h>
 
 #ifndef FREEINK_EPDIY_CONFIG
 #error \
@@ -112,6 +113,7 @@ void EpdiyDriver::begin(EpdBus& bus) {
   if (_lsb) memset(_lsb, 0, planeBytes);
   if (_msb) memset(_msb, 0, planeBytes);
   _ready = _hl.front_fb != nullptr;
+  _faulted = false; _panelKnown = false;
   if (_ready && _cfg.deferredRefresh && !_worker) {
     _stop.store(false); _exited.store(false);
     if (xTaskCreatePinnedToCoreWithCaps(runWorker, "fi_present", 8192, this, 2,
@@ -135,12 +137,21 @@ void EpdiyDriver::deepSleep(EpdBus& bus) {
 // so the first draw clears the glass and draws from white. A board can supply
 // its white-conditioning waveform for subsequent full refreshes.
 bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
+  // An underrun leaves unknown optical state. Stop at the hardware boundary:
+  // automatic UI retries must not repeatedly clear/flash a faulty panel path.
+  // Only an explicit resync (AI clean refresh) rearms this driver.
+  if (_faulted) { _queuedAt=0; _success.store(false); return false; }
 #if CONFIG_PM_ENABLE
   esp_pm_lock_handle_t awake = nullptr;
   if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "epdiy-present", &awake) == ESP_OK)
     esp_pm_lock_acquire(awake);
 #endif
+  const auto workerAt=micros();
+  _metrics={}; epd_metrics_reset();
+  _metrics.queue_us=_queuedAt ? uint32_t(workerAt-_queuedAt) : 0;
+  _queuedAt=0;
   epd_poweron();
+  const auto poweredAt=micros();
   enum EpdDrawError err;
   if (!_panelKnown) {
     err = epd_clear_checked();
@@ -156,9 +167,33 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
   } else {
     err = epd_hl_update_screen(&_hl, mode, temperature());
   }
+  const auto updatedAt=micros();
   epd_poweroff();
-  // An interrupted waveform leaves the optical state unknown: clear again next time.
+  _metrics.power_us=(poweredAt-workerAt)+(micros()-updatedAt);
+  const auto scan=epd_metrics_get();
+  _metrics.cycle_us=scan.cycle_us;
+  _metrics.scan_us=scan.scan_us;
+  _metrics.lut_us=scan.lut_us;
+  _metrics.feed_wait_us=scan.feed_wait_us;
+  _metrics.phase_avg_us=scan.phase_avg_us;
+  _metrics.phase_min_us=scan.phase_min_us;
+  _metrics.phase_max_us=scan.phase_max_us;
+  _metrics.eof_gap_us=scan.eof_gap_us;
+  _metrics.eof_work_us=scan.eof_work_us;
+  _metrics.phases=scan.phases;
+  _metrics.completed=scan.completed;
+  _metrics.faults=scan.faults;
+  _metrics.fault_phase=scan.fault_phase;
+  _metrics.fault_line=scan.fault_line;
+  _metrics.fault_thread=scan.fault_thread;
+
+  _metrics.pixel_clock_hz=scan.pixel_clock_hz;
+  _metrics.highlevel_us=(updatedAt-poweredAt)-scan.cycle_us;
+  _finishedAt=micros();
+  _metrics.worker_us=_finishedAt-workerAt;
+  // An interrupted waveform needs explicit resync before another scan.
   _panelKnown = err == EPD_DRAW_SUCCESS;
+  _faulted = !_panelKnown;
   _success.store(_panelKnown);
 #if CONFIG_PM_ENABLE
   if (awake) { esp_pm_lock_release(awake); esp_pm_lock_delete(awake); }
@@ -174,24 +209,24 @@ void EpdiyDriver::prepare(const uint8_t* fb, RefreshMode mode) {
 }
 void EpdiyDriver::display(EpdBus& bus, const uint8_t* fb, const uint8_t*, RefreshMode mode, bool) {
   displayFinish(bus, nullptr);
-  if (!_ready || !fb) { _success.store(false); return; }
+  if (!_ready || !fb || _faulted) { _success.store(false); return; }
   prepare(fb, mode);
   update(_lastBaseMode, mode != RefreshMode::Fast);
 }
 bool EpdiyDriver::displayStart(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, RefreshMode mode, bool off) {
   if (!_worker) { display(bus, fb, prev, mode, off); return false; }
   displayFinish(bus, nullptr);
-  if (!_ready || !fb) { _success.store(false); return false; }
+  if (!_ready || !fb || _faulted) { _success.store(false); return false; }
   // EPDiy already owns a full 4bpp target: copy before returning, never keep the
   // caller's framebuffer pointer or allocate a second per-refresh snapshot.
   prepare(fb, mode); _jobFull = mode != RefreshMode::Fast;
-  _working.store(true); xTaskNotifyGive(_worker);
+  _queuedAt=micros(); _working.store(true); xTaskNotifyGive(_worker);
   return true;
 }
 bool EpdiyDriver::displayGray8Start(EpdBus& bus, const uint8_t* pixels, uint16_t stride, RefreshMode mode) {
   displayFinish(bus, nullptr);
   const auto g = geometry();
-  if (!_ready || !pixels || stride < g.width) { _success.store(false); return false; }
+  if (!_ready || !pixels || stride < g.width || _faulted) { _success.store(false); return false; }
   auto* dst = epd_hl_get_framebuffer(&_hl);
   for (uint16_t y = 0; y < g.height; ++y) {
     const auto* row = pixels + size_t(y)*stride;
@@ -212,7 +247,13 @@ bool EpdiyDriver::displayGray8Start(EpdBus& bus, const uint8_t* pixels, uint16_t
   _lastBaseMode = mode == RefreshMode::Fast ? MODE_GL16 : MODE_GC16;
   _jobFull = mode != RefreshMode::Fast;
   if (!_worker) { update(_lastBaseMode, _jobFull); return false; }
-  _working.store(true); xTaskNotifyGive(_worker); return true;
+  _queuedAt=micros(); _working.store(true); xTaskNotifyGive(_worker); return true;
+}
+RefreshMetrics EpdiyDriver::lastRefreshMetrics() const {
+  if (_working.load()) return {};
+  auto result=_metrics;
+  result.completion_us=_finishedAt ? uint32_t(micros()-_finishedAt) : 0;
+  return result;
 }
 void EpdiyDriver::displayFinish(EpdBus&, const uint8_t*) {
   while (_working.load()) delay(1);

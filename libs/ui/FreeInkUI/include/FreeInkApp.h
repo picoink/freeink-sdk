@@ -891,6 +891,7 @@ public:
   }
 
   void invalidate(RefreshHint hint = RefreshHint::Fast) {
+    presentationFailures_ = 0;
     invalidated_ = true;
     if (static_cast<uint8_t>(hint) > static_cast<uint8_t>(refreshHint_))
       refreshHint_ = hint;
@@ -932,20 +933,35 @@ public:
   }
   bool presentationPending() const { return presentationPending_; }
   bool inputReady() const {
-    return !deferredPresentation_ || (!presentationPending_ && !invalidated_);
+    return !deferredPresentation_ || (!presentationPending_ && !invalidated_ && !presentationFailed_);
   }
   uint32_t cancelledInputs() const { return cancelledInputs_; }
   void cancelInput() { ++cancelledInputs_; }
+  void deferPresentation() {
+    if (!presentationPending_) return;
+    presentationPending_ = false;
+    invalidated_ = true;
+    if (static_cast<uint8_t>(lastRenderHint_) > static_cast<uint8_t>(refreshHint_))
+      refreshHint_ = lastRenderHint_;
+  }
   void finishPresentation(bool success) {
     if (!presentationPending_) return;
     presentationPending_ = false;
+    presentationFailed_ = !success;
     if (success) {
+      presentationFailures_ = 0;
       publishInteractions();
 #ifdef FREEINK_HOST
       freeink::host::commitHitRegions();
 #endif
     }
-    else invalidate(lastRenderHint_);
+    else if (++presentationFailures_ < 2) {
+      // One automatic recovery, then wait for an explicit invalidation/input.
+      // Repeated hardware failure must never become a continuous flash loop.
+      invalidated_ = true;
+      if (static_cast<uint8_t>(lastRenderHint_) > static_cast<uint8_t>(refreshHint_))
+        refreshHint_ = lastRenderHint_;
+    }
   }
 
   ActionEvent render(const InputSnapshot &input = InputSnapshot{}) {
@@ -1098,6 +1114,8 @@ private:
   bool handlerOverflowed_ = false;
   bool invalidated_ = true;
   bool deferredPresentation_ = false, presentationPending_ = false;
+  bool presentationFailed_ = false;
+  uint8_t presentationFailures_ = 0;
   uint32_t cancelledInputs_ = 0;
   RefreshHint refreshHint_ = RefreshHint::Full;
   RefreshHint lastRenderHint_ = RefreshHint::None;

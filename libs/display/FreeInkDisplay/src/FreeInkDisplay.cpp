@@ -672,6 +672,10 @@ bool FreeInkDisplay::refreshBusy() {
   return _refreshPending && _driver->refreshBusy(_bus);
 }
 
+RefreshMetrics FreeInkDisplay::lastRefreshMetrics() const {
+  return _driver ? _driver->lastRefreshMetrics() : RefreshMetrics{};
+}
+
 bool FreeInkDisplay::lastRefreshSucceeded() const {
   return _driver && _driver->lastRefreshSucceeded();
 }

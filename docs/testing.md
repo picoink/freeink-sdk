@@ -331,3 +331,34 @@ black and 15 white. The Gray8 target expands each level to `level * 17`.
 The UI host suite checks all display/image rotations, odd widths, clipped and
 scaled rectangles, padded output rows, and every gray level against an
 independent scalar frame. This verifies pixel values, not optical panel levels.
+
+## S31 LCD pipeline and failure containment
+
+```sh
+python3 libs/display/epdiy/test/host/run.py
+python3 libs/display/FreeInkDisplay/test/host/run_epdiy.py
+```
+
+The pipeline suite compiles the production LUT, row queues, difference conversion
+and overlapped phase scheduler with a threaded fake LCD. It compares each emitted
+row with independent scalar waveform output over 684 rows, with either CPU owning
+the IRQ. Incomplete scans and missing completion interrupts must drain both feeders
+before queue/LUT reuse; subsequent cycles must recover without stale phases. UBSan
+also checks unaligned packed difference input, every width from 1 to 1216, and odd
+tails. The driver suite injects a failed scan and verifies that automatic retries
+cannot clear or scan the panel again until an explicit resync.
+
+The S31 scheduler preloads 125 rows per 127-slot queue. The CPU servicing the
+LCD/DMA interrupts prepares 7 of every 16 rows, and the other CPU prepares 9;
+neither feeder loses its prefill reserve. The next phase can prepare once both
+feeders finish, while the LCD consumes the current tail. LCD and DMA interrupts
+share a CPU and cancellation waits for their old callbacks before recycling data.
+Other LCD targets retain alternating ownership. EPDiy exposes separate power,
+preparation, waveform-cycle, actual scanning and completion timings through
+`RefreshMetrics`; the API contains no ESP-IDF types.
+
+FreeInkUI caps automatic retries after two failed presentations. A temporarily
+busy surface uses `deferPresentation()` and does not consume that failure budget.
+Input regions remain unpublished until presentation succeeds. Real device timing,
+underruns, modal appearance and optical gray levels must be validated separately;
+the PicoInk consumer records those results in its responsiveness validation log.

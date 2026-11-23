@@ -40,6 +40,8 @@ class EpdiyDriver : public PanelDriver {
   bool displayGray8Start(EpdBus&, const uint8_t*, uint16_t, RefreshMode) override;
   bool supportsAsyncDisplay() const override { return _worker != nullptr; }
   bool refreshBusy(EpdBus&) const override { return _working.load(); }
+  RefreshMetrics lastRefreshMetrics() const override;
+  void requestResync(uint8_t = 0) override { if (!_working.load()) _faulted=false; }
   bool lastRefreshSucceeded() const override { return _success.load(); }
   bool displayStart(EpdBus&, const uint8_t*, const uint8_t*, RefreshMode, bool) override;
   void displayFinish(EpdBus&, const uint8_t*) override;
@@ -63,12 +65,15 @@ class EpdiyDriver : public PanelDriver {
   void stopWorker();
   TaskHandle_t _worker = nullptr;
   std::atomic<bool> _working{false}, _stop{false}, _exited{true}, _success{true};
+  RefreshMetrics _metrics{};
+  uint32_t _queuedAt=0, _finishedAt=0;
   bool _jobFull = false;
   int temperature() const;
 
   const EpdiyConfig& _cfg;
   EpdiyHighlevelState _hl{};
   bool _ready = false;
+  bool _faulted = false;
   bool _panelKnown = false;  // false until a clear has put the glass in a known state
   uint8_t* _lsb = nullptr;
   uint8_t* _msb = nullptr;

@@ -18,6 +18,7 @@
 
 #include "../src/bus/EpdBus.h"
 #include "GrayscaleCapabilities.h"
+#include "RefreshMetrics.h"
 
 namespace freeink {
 
@@ -186,6 +187,7 @@ class FreeInkDisplay {
   // True while an async refresh is still running on the panel.
   bool refreshBusy();
   bool lastRefreshSucceeded() const;
+  RefreshMetrics lastRefreshMetrics() const;
   bool supportsGray8() const;
   bool displayGray8BufferAsync(const uint8_t*, uint16_t stride, RefreshMode mode = FAST_REFRESH);
   // Block until a pending refresh completes (no-op when none is): the async

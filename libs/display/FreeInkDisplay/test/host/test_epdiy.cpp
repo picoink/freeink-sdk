@@ -56,7 +56,15 @@ int main() {
     driver.displayStart(bus, frame.data(), nullptr, RefreshMode::Full, false);
     driver.displayFinish(bus, nullptr);
     assert(!driver.lastRefreshSucceeded() && panel::lastKind == 1);
+    const unsigned failedCalls=panel::calls, failedClears=panel::clears;
+    for (int retry=0;retry<5;++retry) {
+      driver.displayStart(bus,frame.data(),nullptr,RefreshMode::Full,false);
+      driver.displayFinish(bus,nullptr);
+      assert(!driver.lastRefreshSucceeded());
+      assert(panel::calls==failedCalls && panel::clears==failedClears);
+    }
     panel::fail = false;
+    driver.requestResync();
     unsigned clears = panel::clears;
     driver.displayStart(bus, frame.data(), nullptr, RefreshMode::Fast, false);
     driver.displayFinish(bus, nullptr);

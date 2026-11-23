@@ -5335,6 +5335,13 @@ void testDeferredPresentation() {
   CHECK(!app.route(tap));
   CHECK_EQ(state.handled, 1);
   CHECK_EQ(app.cancelledInputs(), 3u);
+  app.renderDeferred(); app.finishPresentation(false);
+  CHECK(app.invalidated());
+  app.renderDeferred(); app.finishPresentation(false);
+  CHECK(!app.invalidated() && !app.inputReady());
+  CHECK(!app.route(tap));
+  app.invalidate(); app.renderDeferred(); app.finishPresentation(true);
+  CHECK(app.inputReady());
   app.renderDeferred();
   // Navigation during an in-flight frame must still repaint after completion.
   app.setScreen(appTestScreen, &state);
