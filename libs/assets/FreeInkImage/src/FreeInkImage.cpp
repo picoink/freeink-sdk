@@ -8,8 +8,13 @@
 #if defined(CONFIG_IDF_TARGET_ESP32S31) && !defined(FREEINK_HOST)
 #define FREEINK_S31_IMAGE 1
 #include <driver/jpeg_decode.h>
+#include <driver/jpeg_encode.h>
 #include <driver/ppa.h>
 #include <esp_cache.h>
+#include <esp_log.h>
+#endif
+#ifdef FREEINK_HOST
+extern "C" bool freeink_host_encode_gray(const uint8_t*,uint16_t,uint16_t,unsigned,uint8_t*,size_t,size_t*);
 #endif
 namespace freeink {
 namespace {
@@ -68,7 +73,7 @@ struct HardwareLease {
 }
 uint32_t ImageAccelerator::capabilities() {
 #if FREEINK_S31_IMAGE
-  return 7;
+  return 15;
 #else
   return 4;
 #endif
@@ -77,6 +82,69 @@ ImageAccelerator::~ImageAccelerator() {
 #if FREEINK_S31_IMAGE
   if (ppa_) ppa_unregister_client(static_cast<ppa_client_handle_t>(ppa_));
   if (jpeg_) jpeg_del_decoder_engine(static_cast<jpeg_decoder_handle_t>(jpeg_));
+  if (encoder_) jpeg_del_encoder_engine(static_cast<jpeg_encoder_handle_t>(encoder_));
+#endif
+}
+void ImageAccelerator::prepare() {
+#if FREEINK_S31_IMAGE
+  if (!jpeg_) {
+    jpeg_decode_engine_cfg_t config{}; config.timeout_ms=1000;
+    jpeg_decoder_handle_t decoder=nullptr;
+    if (jpeg_new_decoder_engine(&config,&decoder)==ESP_OK) jpeg_=decoder;
+  }
+  if (!encoder_) {
+    jpeg_encode_engine_cfg_t config{}; config.timeout_ms=1000;
+    jpeg_encoder_handle_t encoder=nullptr;
+    if (jpeg_new_encoder_engine(&config,&encoder)==ESP_OK) encoder_=encoder;
+  }
+#endif
+}
+bool ImageAccelerator::encodeGray(const uint8_t* gray,uint16_t width,uint16_t height,unsigned quality,
+                                  uint8_t* output,size_t capacity,size_t& written) {
+  written=0;
+  if (!gray || !output || !capacity || !width || !height || width>1024 || height>1024 ||
+      width%16 || height%16 || !quality || quality>100 || !proceed()) return false;
+#ifdef FREEINK_HOST
+  if (!freeink_host_encode_gray(gray,width,height,quality,output,capacity,&written) || !proceed()) {
+    written=0; return false;
+  }
+  return true;
+#elif FREEINK_S31_IMAGE
+  const size_t rawBytes=size_t(width)*height, encodedBytes=rawBytes*4+4096;
+  if (!room(rawBytes+encodedBytes,encodedBytes,work_.budget)) { stats_.reason=Reason::Budget; return false; }
+  jpeg_encode_memory_alloc_cfg_t memory{}; memory.buffer_direction=JPEG_ENC_ALLOC_INPUT_BUFFER;
+  size_t inCapacity=0,outCapacity=0;
+  Buffer input(static_cast<uint8_t*>(jpeg_alloc_encoder_mem(rawBytes,&memory,&inCapacity)),&free);
+  memory.buffer_direction=JPEG_ENC_ALLOC_OUTPUT_BUFFER;
+  Buffer encoded(static_cast<uint8_t*>(jpeg_alloc_encoder_mem(encodedBytes,&memory,&outCapacity)),&free);
+  if (!input || !encoded || inCapacity<rawBytes || outCapacity<encodedBytes) { stats_.reason=Reason::Allocation; return false; }
+  stats_.peak_bytes=std::max<uint32_t>(stats_.peak_bytes,inCapacity+outCapacity);
+  memcpy(input.get(),gray,rawBytes);
+  uint32_t count=0;
+  bool ok=false;
+  {
+    HardwareLease lease(work_); if (!lease.held) return false;
+    // The official handles share the codec lock. Keep their internal DMA
+    // descriptors stable rather than reallocating amid UI heap fragmentation.
+    if (!encoder_) prepare();
+    if (!encoder_) { stats_.reason=Reason::Allocation; return false; }
+    jpeg_encode_cfg_t options{}; options.width=width; options.height=height;
+    options.src_type=JPEG_ENCODE_IN_FORMAT_GRAY; options.sub_sample=JPEG_DOWN_SAMPLING_GRAY; options.image_quality=quality;
+    esp_cache_msync(input.get(),inCapacity,ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+    const auto error=jpeg_encoder_process(static_cast<jpeg_encoder_handle_t>(encoder_),&options,input.get(),rawBytes,encoded.get(),outCapacity,&count);
+    ok=error==ESP_OK;
+    if (!ok) ESP_LOGW("fi_jpeg","encode failed: %d, DMA free=%u",int(error),unsigned(heap_caps_get_free_size(MALLOC_CAP_DMA|MALLOC_CAP_INTERNAL|MALLOC_CAP_DEFAULT)));
+    // The driver invalidates only the DMA payload. Its JPEG header was written
+    // by the CPU; invalidating the whole buffer here would discard that header.
+  }
+  if (!proceed()) { stats_.reason=Reason::Cancelled; return false; }
+  if (!ok || count<4 || count>outCapacity || count>capacity || !standard(encoded.get(),count)) {
+    ESP_LOGW("fi_jpeg","invalid encoded cache: bytes=%u, baseline=%u",unsigned(count),unsigned(count<=outCapacity && standard(encoded.get(),count)));
+    stats_.reason=Reason::Driver; return false;
+  }
+  memcpy(output,encoded.get(),count); written=count; return true;
+#else
+  stats_.reason=Reason::Platform; return false;
 #endif
 }
 book::ImageBackend::Result ImageAccelerator::render(book::BookSource& source,const book::ZipEntry& entry,
@@ -195,10 +263,11 @@ book::ImageBackend::Result ImageAccelerator::decode(book::BookSource& source,con
   input.reset();
   if (!proceed()) return Result::Stopped;
   book::RowScaler scaler;
+  const bool direct=info.width==image.width && info.height==image.height;
   scaler.srcW=info.width; scaler.srcH=info.height; scaler.dstW=image.width; scaler.dstH=image.height;
   scaler.rowFn=rowFn; scaler.user=user;
   auto* row=static_cast<uint8_t*>(scratch.alloc(info.width,1));
-  if (!book::initScaler(scaler,scratch) || !row) return declined(Reason::Allocation);
+  if ((!direct && !book::initScaler(scaler,scratch)) || !row) return declined(Reason::Allocation);
   auto started=micros();
   for (unsigned y=0;y<info.height;++y) {
     if (!proceed()) return Result::Stopped;
@@ -209,7 +278,7 @@ book::ImageBackend::Result ImageAccelerator::decode(book::BookSource& source,con
       for (unsigned x=0;x<info.width;++x) row[x]=work_.rgb ? (29*pixels[3*x]+150*pixels[3*x+1]+77*pixels[3*x+2])>>8 : pixels[3*x+2];
       pixels=row;
     }
-    if (!scaler.feedSourceRow(y,pixels)) return Result::Stopped;
+    if (!(direct ? rowFn(user,y,pixels,info.width) : scaler.feedSourceRow(y,pixels))) return Result::Stopped;
   }
   stats_.scale_us+=uint32_t(micros()-started);
   return Result::Complete;

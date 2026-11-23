@@ -53,6 +53,25 @@ with `djpeg -grayscale`; also checks that baseline files are refused and that
 a truncated stream decodes without failing. Set `PJ_EXTRA_JPEGS` to a
 colon-separated list of files to check real-world images too.
 
+## Persistent thumbnail JPEGs
+
+`ImageAccelerator::encodeGray` accepts bounded, MCU-aligned grayscale images.
+The S31 implementation serializes decoder/encoder transactions on the content worker
+and uses the official DMA allocation, synchronization and completion APIs. The
+desktop adapter uses libjpeg and never advertises hardware capability.
+
+The consumer `content_tasks` test checks aligned JPEG output, tiny-output failure
+and loading a cached image while its original book is unavailable. Its
+`reader_cover_cache` integration test checks persistent generation, warm disk
+hits without rewriting files, Home memory reuse and corrupt-cache regeneration.
+Run these and `image_quality`, the SDK host suites and the Metalio build before
+committing. Device acceptance must observe actual cache hits with JPEG hardware
+execution; successful host encoding is not hardware validation.
+The PicoInk S31 device run generated and validated six 160 x 240 Q90 cache
+JPEGs. Rebooted disk hits each executed the hardware decoder in 0.97–1.10 ms
+(21–24 ms complete cache tasks). The codec retains its early-created handles;
+the encoder's CPU-written header must not be invalidated with the DMA payload.
+
 ## Battery gauge
 
 ```sh
