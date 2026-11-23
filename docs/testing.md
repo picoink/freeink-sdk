@@ -257,6 +257,17 @@ debug connection and returned to Reader with SD available. The retained SD DMA
 buffer allowed remount even with a largest free DMA block of only 2,548 bytes.
 These observations are separate from host tests and the Metalio firmware build.
 
+The PCF8563 timer model also reproduces the Metalio's nonzero unused-bit reads:
+Control_status_2 bit 6 and Timer_control bits 6, 4 and 2 read high. Timer setup
+must verify only TE/TD, and writes must not copy unused bits. See the
+[PCF8563 register definitions](https://cache.nxp.com/docs/en/data-sheet/PCF8563.pdf),
+sections 8.3.2 and 8.8.1. The pre-fix implementation fails this regression.
+The RTC runner accepts `FREEINK_TEST_SANITIZERS=undefined` on hosts whose ASan
+runtime cannot initialize; record that explicitly rather than claiming an ASan
+pass. The PicoInk validation host used this override, as with its font tests.
+On the physical S31, the corrected 60-second timer produced `RTC timer wake
+detected` after 61.97 seconds; Reader, SD and cached covers recovered afterward.
+
 ## Application PSRAM and waveform storage
 
 The host resource suite (`host_resources` in PicoInk's stress simulator build)
