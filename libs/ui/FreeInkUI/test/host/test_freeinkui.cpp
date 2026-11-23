@@ -5344,6 +5344,36 @@ void testDeferredPresentation() {
   CHECK(app.inputReady());
 }
 
+void testPersistentNavigation() {
+  FakeDrawTarget draw; DeviceContext device{200,120}; AppTestState state;
+  FreeInkApp<8,4> app(draw,device); app.setScreen(appTestScreen,&state);
+  app.on(ActionBack,appTestHandler,&state);
+  InputSnapshot tap; tap.touchReleased=true; tap.touchX=150; tap.touchY=100;
+  app.renderDeferred();
+  CHECK(!app.routePersistent(tap,ActionBack));
+  app.finishPresentation(true);
+  app.invalidate(); app.renderDeferred();
+  CHECK(app.routePersistent(tap,ActionBack));
+  CHECK_EQ(state.handled,1);
+  CHECK(!app.route(tap));
+  CHECK(!app.routePersistent(tap,999));
+  device.orientation=Orientation::LandscapeClockwise; app.setDevice(device);
+  CHECK(!app.routePersistent(tap,ActionBack));
+  app.finishPresentation(false);
+  CHECK(app.invalidated());
+}
+
+void testGray2DisplayBitmap() {
+  uint8_t pixels[24]{}; uint8_t bits[]={0x1b};
+  DisplayTarget target(pixels,8,3,8,Orientation::LandscapeCounterClockwise,true);
+  target.bitmap({0,0,8,2},{bits,4,1,BitmapFormat::Gray2,false},BitmapMode::Stretch);
+  const uint8_t expected[]={0,0,64,64,192,192,255,255};
+  CHECK(std::memcmp(pixels,expected,8)==0); CHECK(std::memcmp(pixels+8,expected,8)==0);
+  target.setClipRect({2,2,4,1});
+  target.bitmap({0,2,8,1},{bits,4,1,BitmapFormat::Gray2,false},BitmapMode::Stretch);
+  CHECK_EQ(pixels[16],0); CHECK_EQ(pixels[18],64); CHECK_EQ(pixels[21],192); CHECK_EQ(pixels[23],0);
+}
+
 void noopHandler(const ActionEvent&, void*) {}
 
 void testFreeInkAppHandlerOverflowFlag() {
@@ -6239,6 +6269,8 @@ int main() {
   testScreenAnchoredLayout();
   testFreeInkAppDispatchesScreenActions();
   testDeferredPresentation();
+  testPersistentNavigation();
+  testGray2DisplayBitmap();
   testFreeInkAppHandlerOverflowFlag();
   testFreeInkAppSharedThemeRefFollowsAtomicSwap();
   testTextArea();

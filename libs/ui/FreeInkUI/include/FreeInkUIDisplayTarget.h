@@ -33,6 +33,8 @@
 
 #include <FreeInkUI.h>
 #include <FreeInkUIFont.h>
+#include <cstring>
+#include <algorithm>
 
 namespace freeink {
 namespace ui {
@@ -195,6 +197,18 @@ class DisplayTarget final : public DrawTarget {
       return;
     }
     if (paint.color == Color::Transparent) return;
+    if (gray8_) {
+      const int r = std::min<int>(radius,std::min(rect.width,rect.height)/2);
+      if (!r) { fillGrayRect(rect,paint.color); return; }
+      // Only the four corner squares require per-pixel shape tests.
+      fillGrayRect({int16_t(rect.x+r),rect.y,int16_t(rect.width-2*r),rect.height},paint.color);
+      fillGrayRect({rect.x,int16_t(rect.y+r),int16_t(r),int16_t(rect.height-2*r)},paint.color);
+      fillGrayRect({int16_t(rect.right()-r),int16_t(rect.y+r),int16_t(r),int16_t(rect.height-2*r)},paint.color);
+      for (int cy : {int(rect.y),int(rect.bottom()-r)}) for (int cx : {int(rect.x),int(rect.right()-r)})
+        for (int y=cy;y<cy+r;++y) for (int x=cx;x<cx+r;++x)
+          if (insideRounded(rect,r,corners,x,y)) plot(x,y,paint.color);
+      return;
+    }
     for (int16_t y = rect.y; y < rect.bottom(); ++y) {
       for (int16_t x = rect.x; x < rect.right(); ++x) {
         if (radius > 0 && !insideRounded(rect, radius, corners, x, y)) continue;
@@ -208,8 +222,12 @@ class DisplayTarget final : public DrawTarget {
     if (rect.empty() || width == 0 || paint.kind == PaintKind::None || paint.color == Color::Transparent) return;
     const Rect inner = rect.inset(Insets{static_cast<int16_t>(width), static_cast<int16_t>(width),
                                          static_cast<int16_t>(width), static_cast<int16_t>(width)});
+    const int edge = std::min<int>(width+radius,std::min(rect.width,rect.height));
     for (int16_t y = rect.y; y < rect.bottom(); ++y) {
       for (int16_t x = rect.x; x < rect.right(); ++x) {
+        if (gray8_ && y>=rect.y+edge && y<rect.bottom()-edge && x>=rect.x+edge && x<rect.right()-edge) {
+          x=rect.right()-edge-1; continue;
+        }
         const bool onOuter = radius == 0 || insideRounded(rect, radius, corners, x, y);
         if (!onOuter) continue;
         const bool inHole = !inner.empty() && (radius == 0 ? inner.contains(x, y)
@@ -282,6 +300,11 @@ class DisplayTarget final : public DrawTarget {
               const Paint foreground = Paint::solid(Color::Black),
               const Rotation rotation = Rotation::None) override {
     if (!bitmap || rect.empty()) return;
+    if (bitmap.format==BitmapFormat::Gray2) {
+      const Color levels[]={Color::Black,Color::DarkGray,Color::LightGray,Color::White};
+      forEachBitmapSample(rect,bitmap,mode,[&](int16_t x,int16_t y,uint8_t level) { plot(x,y,levels[level]); },rotation);
+      return;
+    }
     // Both row-major, MSB-first; forEachBitmapPixel folds in the per-format
     // polarity (BW1 set-bit-is-ink, Mask1 the Icon convention: 0 = draw).
     if (bitmap.format != BitmapFormat::BW1 && bitmap.format != BitmapFormat::Mask1) return;
@@ -292,6 +315,25 @@ class DisplayTarget final : public DrawTarget {
   }
 
  private:
+  static uint8_t grayLevel(Color color) {
+    return color==Color::Black ? 0 : color==Color::DarkGray ? 64 : color==Color::LightGray ? 192 : 255;
+  }
+  void fillGrayRect(Rect rect, Color color) {
+    if (!fb_ || rect.empty()) return;
+    int x=std::max<int>({0,rect.x,clip_.x}), y=std::max<int>({0,rect.y,clip_.y});
+    int right=std::min<int>({w_,int(rect.x)+rect.width,int(clip_.x)+clip_.width});
+    int bottom=std::min<int>({h_,int(rect.y)+rect.height,int(clip_.y)+clip_.height});
+    if (right<=x || bottom<=y) return;
+    int width=right-x,height=bottom-y,px=x,py=y;
+    switch (orientation_) {
+      case Orientation::Portrait: px=y; py=ph_-right; std::swap(width,height); break;
+      case Orientation::PortraitInverted: px=pw_-bottom; py=x; std::swap(width,height); break;
+      case Orientation::LandscapeClockwise: px=pw_-right; py=ph_-bottom; break;
+      default: break;
+    }
+    const auto level=grayLevel(color);
+    for (int row=py;row<py+height;++row) std::memset(fb_+size_t(row)*pwb_+px,level,width);
+  }
   Rect clip_{0, 0, 32767, 32767};
   bool gray8_ = false;
   uint8_t* fb_;
@@ -378,8 +420,10 @@ class DisplayTarget final : public DrawTarget {
         break;
     }
     if (gray8_) {
-      const uint8_t level = color == Color::Black ? 0 : color == Color::DarkGray ? 64 : color == Color::LightGray ? 192 : 255;
+      const uint8_t level = grayLevel(color);
       auto& pixel = fb_[static_cast<int32_t>(py) * pwb_ + px];
+      if (coverage==255) { pixel=level; return; }
+      if (!coverage) return;
       pixel = uint8_t((uint32_t(level)*coverage + uint32_t(pixel)*(255-coverage) + 127)/255);
       return;
     }

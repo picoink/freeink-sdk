@@ -1024,6 +1024,17 @@ public:
     return lastEvent_;
   }
 
+  // Opt-in routing for controls whose identity and geometry survive a pending
+  // presentation (e.g. root tabs). The caller owns scope/timestamp validation
+  // and invalidation; ordinary controls must continue using route().
+  ActionEvent routePersistent(const InputSnapshot& input,ActionId action) {
+    if (!input.touchReleased || device_.orientation!=publishedOrientation_) return {};
+    Interaction hit{};
+    if (!interactions_.hitPublished(input.touchX,input.touchY,action,hit)) return {};
+    ActionEvent event{}; event.action=hit.action; event.value=hit.value;
+    clearTapFlash(); dispatch(event); lastEvent_=event; return event;
+  }
+
   // True while a held touch sits on an interactive element (the routing marks
   // it active and it renders with its StateActive style).
   bool touchActive() const { return interactions_.activeIndex() >= 0; }
@@ -1046,6 +1057,7 @@ public:
 private:
   void publishInteractions() {
     interactions_.publish();
+    publishedOrientation_=device_.orientation;
 #ifdef FREEINK_HOST
     for (size_t i = 0; i < interactions_.publishedCount(); ++i) {
       const auto& h = interactions_.publishedData()[i];
@@ -1070,6 +1082,7 @@ private:
 
   DrawTarget &target_;
   DeviceContext device_{};
+  Orientation publishedOrientation_=Orientation::Portrait;
   // Theme storage: caller-owned shared tokens (setThemeRef) or an app-owned
   // heap copy (setTheme / the constructor's font-derived default). A pointer
   // pair instead of an inline ThemeTokens member keeps sizeof(FreeInkApp)
