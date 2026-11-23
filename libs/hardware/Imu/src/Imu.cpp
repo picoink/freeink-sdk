@@ -459,6 +459,41 @@ bool Imu::read(Sample& out) {
   return true;
 }
 
+bool Imu::configureMotionInterrupt(bool enabled, uint8_t threshold, uint8_t duration) {
+  const freeink::I2cBusLock busLock;
+  if (!begun_ || BoardConfig::ACTIVE.sensors.imuType != BoardConfig::ImuType::Sc7a20h ||
+      !threshold || threshold > 127 || duration > 127) return false;
+  bool motion = false;
+  const bool ok = writeReg(addr_, 0x22, 0) && writeReg(addr_, 0x30, 0) &&
+      writeReg(addr_, 0x21, enabled ? 1 : 0) && // HPF only for AOI1; gravity samples remain unfiltered.
+      writeReg(addr_, 0x24, enabled ? 8 : 0) && writeReg(addr_, 0x25, 3) &&
+      writeReg(addr_, 0x32, threshold) && writeReg(addr_, 0x33, duration) &&
+      readMotionInterrupt(motion) && writeReg(addr_, 0x30, enabled ? 0x2A : 0) &&
+      writeReg(addr_, 0x22, enabled ? 0x40 : 0);
+  if (!ok) { writeReg(addr_, 0x22, 0); writeReg(addr_, 0x30, 0); }
+  return ok;
+}
+
+bool Imu::readMotionInterrupt(bool& motion) {
+  motion = false;
+  uint8_t source = 0;
+  if (!begun_ || BoardConfig::ACTIVE.sensors.imuType != BoardConfig::ImuType::Sc7a20h ||
+      !readRegs(addr_, 0x31, &source, 1)) return false;
+  motion = source & 0x40;
+  return true;
+}
+
+bool Imu::silenceInterrupt() {
+  if (!begun_) return false;
+  if (BoardConfig::ACTIVE.sensors.imuType != BoardConfig::ImuType::Sc7a20h) return sleep();
+  // Vendor S31 sleep sequence: avoid power-down clamping the wired interrupt.
+  // Disable every source before changing the pin's idle drive mode.
+  if (!configureMotionInterrupt(false) || !writeReg(addr_, SC7_CTRL1, 0x10) ||
+      !writeReg(addr_, 0x25, 0)) return false;
+  sleeping_ = true;
+  return true;
+}
+
 bool Imu::sleep() {
   const uint8_t addr = addr_;
   if (!begun_ || addr == 0) return false;
@@ -529,6 +564,9 @@ bool Imu::begin() { return false; }
 bool Imu::hasGyroscope() const { return false; }
 bool Imu::read(Sample&) { return false; }
 bool Imu::sleep() { return false; }
+bool Imu::configureMotionInterrupt(bool, uint8_t, uint8_t) { return false; }
+bool Imu::readMotionInterrupt(bool& motion) { motion = false; return false; }
+bool Imu::silenceInterrupt() { return false; }
 bool Imu::wake() { return false; }
 }  // namespace freeink
 

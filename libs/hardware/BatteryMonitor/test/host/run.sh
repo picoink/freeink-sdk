@@ -28,3 +28,7 @@ c++ -std=c++17 -Wall -Wextra -Werror \
   -Istubs -I../../include -I../../../BoardConfig/include -I../../../XteinkDetect/test/host/stubs \
   test_adc_usb_detect.cpp ../../src/BatteryMonitor.cpp -o "$BUILD_DIR/test_adc_usb_detect"
 "$BUILD_DIR/test_adc_usb_detect"
+
+c++ -std=c++17 -Wall -Wextra -Werror -Wno-unused-parameter -DFREEINK_DEVICE_METALIO_EINK4_PLUS=1 \
+  -Istubs -I../../../InputManager/test/host/metalio_stubs -I../../../BoardConfig/include test_cx25601n.cpp -o "$BUILD_DIR/cx25601n"
+"$BUILD_DIR/cx25601n"

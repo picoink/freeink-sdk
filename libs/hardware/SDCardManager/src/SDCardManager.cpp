@@ -5,6 +5,12 @@
 #include <esp_task_wdt.h>
 #include <SPI.h>
 #include <new>
+#if FREEINK_MCU_S31
+#include <soc/cnnt_io_mux_struct.h>
+#include <esp_rom_gpio.h>
+#include <esp_private/esp_gpio_reserve.h>
+#include <soc/gpio_sig_map.h>
+#endif
 
 #include "SdmmcBlockDevice.h"  // no-op unless FREEINK_SD_SDMMC
 
@@ -87,8 +93,19 @@ bool SDCardManager::begin() {
 
 FsBlockDeviceInterface* SDCardManager::rawBlockDevice() { return _dev; }
 
+namespace {
+bool syncVolume(FsVolume& volume) {
+  // FsVolume::end() only clears pointers. Sync an open root directory to
+  // flush the FAT/exFAT caches through the public SdFat API before detaching.
+  FsFile root = volume.open("/", O_RDONLY);
+  if (!root) return false;
+  const bool synced = root.sync();
+  return root.close() && synced;
+}
+}
+
 FsBlockDeviceInterface* SDCardManager::detachFilesystemForRawAccess() {
-  if (!initialized || !_dev) return nullptr;
+  if (!initialized || !_dev || !syncVolume(_vol)) return nullptr;
   _vol.end();
   initialized = false;
   cachedTotalBytes = 0;
@@ -97,29 +114,56 @@ FsBlockDeviceInterface* SDCardManager::detachFilesystemForRawAccess() {
   return _dev;
 }
 
-void SDCardManager::shutdown() {
-  if (!initialized || !_dev) return;
-  // FsVolume::end() flushes SdFat's cached FAT/directory sectors; SDMMC block
-  // writes are synchronous, so the card is consistent once it returns.
-  _vol.end();
+bool SDCardManager::shutdown() {
+  if (!_dev) return true;
+  if (initialized && !syncVolume(_vol)) return false;
+  // All file owners must close first; syncVolume() flushes the volume caches.
+  if (initialized) _vol.end();
   _dev->end();  // frees the card and runs sdmmc_host_deinit()
   // sdmmc_host_deinit() leaves the bus pads in their last GPIO-matrix state:
   // CLK/CMD/D0-D3 idle high and back-feed the card's VDD net through the bus
   // pull-ups for the whole sleep (VDD measures 3.3 V with the enable gate
   // driven off). Float the pads so the net can fall; the sleep path's
   // esp_sleep_config_gpio_isolate() keeps them isolated.
+#if FREEINK_MCU_S31
+  CNNT_PAD_CTRL.sdio_clk.sdio_clk_fun_wpu = 0;
+  CNNT_PAD_CTRL.sdio_clk.sdio_clk_fun_wpd = 1;
+  CNNT_PAD_CTRL.sdio_cmd.sdio_cmd_fun_wpu = 0;
+  CNNT_PAD_CTRL.sdio_cmd.sdio_cmd_fun_wpd = 1;
+  CNNT_PAD_CTRL.sdio_data0.sdio_data0_fun_wpu = 0;
+  CNNT_PAD_CTRL.sdio_data0.sdio_data0_fun_wpd = 1;
+  CNNT_PAD_CTRL.sdio_data1.sdio_data1_fun_wpu = 0;
+  CNNT_PAD_CTRL.sdio_data1.sdio_data1_fun_wpd = 1;
+  CNNT_PAD_CTRL.sdio_data2.sdio_data2_fun_wpu = 0;
+  CNNT_PAD_CTRL.sdio_data2.sdio_data2_fun_wpd = 1;
+  CNNT_PAD_CTRL.sdio_data3.sdio_data3_fun_wpu = 0;
+  CNNT_PAD_CTRL.sdio_data3.sdio_data3_fun_wpd = 1;
+  CNNT_PAD_CTRL.ctrl.sdio_pad_pin_ctrl_ded_sel = 0;
+#endif
   const BoardConfig::SdmmcPins& p = BoardConfig::ACTIVE.sdmmc;
   for (const int8_t pin : {p.clk, p.cmd, p.d0, p.d1, p.d2, p.d3}) {
     if (pin < 0) continue;
     const auto g = static_cast<gpio_num_t>(pin);
+#if FREEINK_MCU_S31
+    gpio_hold_dis(g);
+    esp_gpio_revoke(1ULL << pin);
+    esp_rom_gpio_connect_out_signal(g, SIG_GPIO_OUT_IDX, false, false);
+    gpio_set_direction(g, GPIO_MODE_INPUT_OUTPUT);
+    gpio_set_level(g, 0);
+#else
     gpio_set_direction(g, GPIO_MODE_INPUT);
+#endif
     gpio_pullup_dis(g);
     gpio_pulldown_dis(g);
+#if FREEINK_MCU_S31
+    gpio_hold_en(g);
+#endif
   }
   initialized = false;
   cachedTotalBytes = 0;
   cachedUsedBytes = 0;
   cachedUsedBytesValid = false;
+  return true;
 }
 #else
 SDCardManager::SDCardManager() : sd() {}

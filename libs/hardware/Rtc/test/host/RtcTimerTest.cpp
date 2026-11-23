@@ -89,7 +89,43 @@ int main() {
   assert(!rtc.readWakeTimer(fired) && !fired);
   reset();
   BoardConfig::ACTIVE.sensors.rtcType = BoardConfig::RtcType::Pcf8563;
-  assert(!rtc.armWakeTimer(60) && !rtc.cancelWakeTimer());
+  Rtc::DateTime invalid{2026, 2, 30, 0, 0, 0, 0};
+  assert(!rtc.set(invalid));
+  regs[0x32][0] = 0x20;
+  assert(rtc.set(expected) && !(regs[0x32][0] & 0x20) && rtc.now(time));
+  regs[0x32][0] = 0x20;
+  assert(!rtc.now(time));
+  regs[0x32][0] = 0;
+  regs[0x32][1] = 0x08; // Alarm flag must survive timer operations.
+  assert(!rtc.armWakeTimer(0) && !rtc.armWakeTimer(15301));
+  for (const uint32_t seconds : {1U, 60U, 255U, 256U, 15300U}) {
+    assert(rtc.armWakeTimer(seconds));
+    assert(regs[0x32][0x0F] == (seconds > 255 ? (seconds + 59) / 60 : seconds));
+    assert(regs[0x32][0x0E] == (seconds > 255 ? 0x83 : 0x82));
+    assert(regs[0x32][1] == 9);
+    assert(rtc.readWakeTimer(fired) && !fired);
+    regs[0x32][1] |= 4;
+    assert(rtc.readWakeTimer(fired) && fired);
+    assert(rtc.cancelWakeTimer() && regs[0x32][1] == 8);
+  }
+  regs[0x32][2] = 0x80;
+  assert(!rtc.armWakeTimer(60));
+  regs[0x32][2] = 0;
+  regs[0x32][1] = 2;
+  assert(!rtc.armWakeTimer(60));
+  regs[0x32][1] = 0;
+  operations = 0;
+  assert(rtc.armWakeTimer(60));
+  const int pcfOperations = operations;
+  for (int failure = 1; failure <= pcfOperations; ++failure) {
+    reset();
+    BoardConfig::ACTIVE.sensors.rtcType = BoardConfig::RtcType::Pcf8563;
+    failAt = failure;
+    assert(!rtc.armWakeTimer(60));
+    failAt = 0;
+    assert(rtc.cancelWakeTimer());
+    assert(!(regs[0x32][0x0E] & 0x80) && !(regs[0x32][1] & 5));
+  }
 
   reset();
   assert(freeink::papermono::setRtcWake(true));

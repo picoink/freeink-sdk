@@ -1936,7 +1936,62 @@ BookStatus ChapterLayoutSession::begin(BookSource& bookSource, const ZipCatalog*
   return BookStatus::Ok;
 }
 
-BookStatus ChapterLayoutSession::step(uint32_t minNewPages) {
+BookStatus ChapterLayoutSession::beginPlainText(BookSource& source, const LayoutParams& params,
+                                                 Arena& scratch, PageSink& sink) {
+  abort();
+  if (params.font == nullptr || params.pageWidth <= 0 || params.pageHeight <= 0) {
+    return BookStatus::Unsupported;
+  }
+  auto* counting = static_cast<CountingSink*>(scratch.alloc(sizeof(CountingSink), alignof(CountingSink)));
+  auto* engine = static_cast<LayoutEngine*>(scratch.alloc(sizeof(LayoutEngine), alignof(LayoutEngine)));
+  plainBuffer_ = static_cast<char*>(scratch.alloc(4096, 1));
+  if (!counting || !engine || !plainBuffer_) return BookStatus::OutOfMemory;
+  countingSink_ = new (counting) CountingSink(sink);
+  engine_ = new (engine) LayoutEngine(source, nullptr, "", params, scratch, *counting);
+  if (!engine->init()) {
+    state_ = State::Failed;
+    return BookStatus::OutOfMemory;
+  }
+  plainSource_ = &source;
+  bytesTotal_ = source.size();
+  engine->onStartElement("body", nullptr);
+  engine->onStartElement("p", nullptr);
+  state_ = State::Parsing;
+  return BookStatus::Ok;
+}
+
+BookStatus ChapterLayoutSession::feedPlainText(bool& atEnd) {
+  auto* engine = static_cast<LayoutEngine*>(engine_);
+  const int32_t n = plainSource_->readAt(plainOffset_, plainBuffer_, 4096);
+  if (n < 0) return BookStatus::IoError;
+  const bool first = plainOffset_ == 0;
+  plainOffset_ += static_cast<uint32_t>(n);
+  int32_t start = 0;
+  if (first && n >= 3 && static_cast<uint8_t>(plainBuffer_[0]) == 0xEF &&
+      static_cast<uint8_t>(plainBuffer_[1]) == 0xBB && static_cast<uint8_t>(plainBuffer_[2]) == 0xBF) start = 3;
+  int32_t runStart = start;
+  for (int32_t i = start; i < n; ++i) {
+    const char c = plainBuffer_[i];
+    if (c == '\n') {
+      if (++plainNewlines_ >= 2) {
+        if (i > runStart) engine->onText(plainBuffer_ + runStart, i - runStart);
+        engine->onEndElement("p");
+        engine->onStartElement("p", nullptr);
+        runStart = i + 1;
+        plainNewlines_ = 0;
+      }
+    } else if (c != '\r') plainNewlines_ = 0;
+  }
+  if (n > runStart) engine->onText(plainBuffer_ + runStart, n - runStart);
+  atEnd = n == 0 || engine->stopParse;
+  if (atEnd) {
+    engine->onEndElement("p");
+    engine->onEndElement("body");
+  }
+  return BookStatus::Ok;
+}
+
+BookStatus ChapterLayoutSession::step(uint32_t minNewPages, uint32_t maxInputChunks) {
   if (state_ == State::Done) return BookStatus::Ok;
   if (state_ != State::Parsing) return BookStatus::Unsupported;
   auto* engine = static_cast<LayoutEngine*>(engine_);
@@ -1945,8 +2000,10 @@ BookStatus ChapterLayoutSession::step(uint32_t minNewPages) {
   const uint32_t startPages = counting->pages();
   bool atEnd = false;
   BookStatus status = BookStatus::Ok;
-  while (!atEnd && !engine->stopParse && counting->pages() - startPages < minNewPages) {
-    status = sax_.feedChunk(&atEnd);
+  uint32_t chunks = 0;
+  while (!atEnd && !engine->stopParse && counting->pages() - startPages < minNewPages && chunks < maxInputChunks) {
+    status = plainSource_ ? feedPlainText(atEnd) : sax_.feedChunk(&atEnd);
+    ++chunks;
     if (status != BookStatus::Ok) break;
   }
   if (status == BookStatus::Ok && (atEnd || engine->stopParse)) {
@@ -1984,6 +2041,10 @@ void ChapterLayoutSession::abort() {
     static_cast<CountingSink*>(countingSink_)->~CountingSink();
     countingSink_ = nullptr;
   }
+  plainSource_ = nullptr;
+  plainBuffer_ = nullptr;
+  plainOffset_ = 0;
+  plainNewlines_ = 0;
   bytesTotal_ = 0;
   state_ = State::Idle;
 }
@@ -2016,66 +2077,13 @@ BookStatus ChapterLayout::layout(BookSource& source, const ZipCatalog& zip,
 BookStatus ChapterLayout::layoutPlainText(BookSource& source, const LayoutParams& params,
                                           Arena& scratch, PageSink& sink,
                                           uint32_t* pageCountOut, uint32_t* totalCharsOut) {
-  if (params.font == nullptr || params.pageWidth <= 0 || params.pageHeight <= 0) {
-    return BookStatus::Unsupported;
-  }
   const size_t marked = scratch.mark();
-  LayoutEngine engine(source, nullptr, "", params, scratch, sink);
-  char* buf = static_cast<char*>(scratch.alloc(4096, 1));
-  if (!engine.init() || buf == nullptr) {
-    scratch.release(marked);
-    return BookStatus::OutOfMemory;
-  }
-
-  // Plain text is "one chapter of <p> elements": paragraphs split on blank
-  // lines, single newlines flow as spaces (the engine's whitespace collapse
-  // handles that). UTF-8 assumed; a leading BOM is skipped.
-  engine.onStartElement("body", nullptr);
-  engine.onStartElement("p", nullptr);
-  uint64_t offset = 0;
-  uint32_t newlines = 0;
-  bool first = true;
-  BookStatus status = BookStatus::Ok;
-  for (;;) {
-    const int32_t n = source.readAt(offset, buf, 4096);
-    if (n < 0) {
-      status = BookStatus::IoError;
-      break;
-    }
-    if (n == 0) break;
-    offset += static_cast<uint32_t>(n);
-    int32_t start = 0;
-    if (first) {
-      first = false;
-      if (n >= 3 && static_cast<uint8_t>(buf[0]) == 0xEF &&
-          static_cast<uint8_t>(buf[1]) == 0xBB && static_cast<uint8_t>(buf[2]) == 0xBF) {
-        start = 3;  // UTF-8 BOM
-      }
-    }
-    int32_t runStart = start;
-    for (int32_t i = start; i < n; ++i) {
-      const char c = buf[i];
-      if (c == '\n') {
-        ++newlines;
-        if (newlines >= 2) {  // blank line = paragraph break
-          if (i > runStart) engine.onText(buf + runStart, i - runStart);
-          engine.onEndElement("p");
-          engine.onStartElement("p", nullptr);
-          runStart = i + 1;
-          newlines = 0;
-        }
-      } else if (c != '\r') {
-        newlines = 0;
-      }
-    }
-    if (n > runStart) engine.onText(buf + runStart, n - runStart);
-    if (engine.stopParse) break;
-  }
-  engine.onEndElement("p");
-  engine.onEndElement("body");
-  if (status == BookStatus::Ok && !engine.finish()) status = BookStatus::OutOfMemory;
-  if (pageCountOut != nullptr) *pageCountOut = engine.pageCount();
-  if (totalCharsOut != nullptr) *totalCharsOut = engine.totalChars();
+  ChapterLayoutSession session;
+  BookStatus status = session.beginPlainText(source, params, scratch, sink);
+  while (status == BookStatus::Ok && !session.done()) status = session.step(UINT32_MAX);
+  if (pageCountOut) *pageCountOut = session.pagesEmitted();
+  if (totalCharsOut) *totalCharsOut = session.totalChars();
+  session.abort();
   scratch.release(marked);
   return status;
 }

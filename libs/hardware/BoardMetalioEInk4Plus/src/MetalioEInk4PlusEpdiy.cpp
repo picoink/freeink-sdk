@@ -117,6 +117,16 @@ void boardPowerOff(epd_ctrl_state_t* state) {
 }
 
 bool powerOnOnce(epd_ctrl_state_t* state) {
+  auto failed = [](const char* stage) {
+    uint16_t inputs = 0, outputs = 0, direction = 0;
+    uint8_t enable = 0, pg = 0, int1 = 0, int2 = 0;
+    mp::readRegister(0, inputs); mp::readRegister(2, outputs); mp::readRegister(6, direction);
+    mp::tpsRead(TPS_REG_ENABLE, enable); mp::tpsRead(TPS_REG_PG, pg);
+    mp::tpsRead(0x07, int1); mp::tpsRead(0x08, int2);
+    log_e("[epd] %s: input=%04x output=%04x config=%04x enable=%02x pg=%02x int=%02x/%02x",
+          stage, inputs, outputs, direction, enable, pg, int1, int2);
+    return false;
+  };
   gpio_set_level(PIN_BORDER, 0);
   epd_ctrl_state_t mask = {};
   mask.ep_output_enable = true;
@@ -128,26 +138,27 @@ bool powerOnOnce(epd_ctrl_state_t* state) {
   boardSetCtrl(state, &mask);
 
   // WAKEUP high, PWRUP low: STANDBY, registers reachable.
-  if (!mp::setOutputs(TPS_LINES, 1u << mp::PIN_TPS_WAKEUP)) return false;
+  if (!mp::setOutputs(TPS_LINES, 1u << mp::PIN_TPS_WAKEUP)) return failed("standby latch");
   delay(50);
   uint8_t revid = 0;
-  if (!mp::tpsProbe() || !mp::tpsRead(TPS_REG_REVID, revid)) return false;
-  if (!mp::tpsWrite(TPS_REG_UPSEQ0, 0xE4) || !mp::tpsWrite(TPS_REG_UPSEQ1, 0x55)) return false;
+  if (!mp::tpsProbe()) return failed("probe");
+  if (!mp::tpsRead(TPS_REG_REVID, revid)) return failed("revision read");
+  if (!mp::tpsWrite(TPS_REG_UPSEQ0, 0xE4) || !mp::tpsWrite(TPS_REG_UPSEQ1, 0x55)) return failed("sequence write");
 
   // PWRUP rising edge starts the boost; wait for PWR_GOOD on P0.7.
-  if (!mp::setOutputs(TPS_LINES, TPS_LINES)) return false;
+  if (!mp::setOutputs(TPS_LINES, TPS_LINES)) return failed("power latch");
   delay(50);
   bool good = false;
   for (int ms = 0; ms < 200 && !good; ++ms) {
     good = mp::tpsPowerGood();
     if (!good) delay(1);
   }
-  if (!good) return false;
+  if (!good) return failed("power-good pin timeout");
 
   const unsigned vcom = static_cast<unsigned>(gVcomMv) / 10;
   if (!mp::tpsWrite(TPS_REG_ENABLE, 0x3F) || !mp::tpsWrite(TPS_REG_VCOM2, (vcom & 0x100) >> 8) ||
       !mp::tpsWrite(TPS_REG_VCOM1, vcom & 0xFF)) {
-    return false;
+    return failed("enable/VCOM write");
   }
   state->ep_sth = true;
 
@@ -157,7 +168,7 @@ bool powerOnOnce(epd_ctrl_state_t* state) {
     railsGood = mp::tpsRead(TPS_REG_PG, pg) && (pg & 0xFA) == 0xFA;
     if (!railsGood) delay(1);
   }
-  if (!railsGood) return false;
+  if (!railsGood) return failed("power-good register timeout");
 
   state->ep_output_enable = true;
   epd_ctrl_state_t outMask = {};

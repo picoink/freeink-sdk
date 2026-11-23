@@ -20,7 +20,13 @@
 // compiled out, and esp_log writes to the IDF UART console rather than the
 // firmware's Serial stream the monitor reads. LOG_INF routes through logPrintf
 // to the firmware Serial and the crash-report ring buffer.
+#if __has_include(<Logging.h>)
 #include <Logging.h>
+#else
+#include <esp32-hal-log.h>
+#define LOG_INF(tag, fmt, ...) log_i("%s: " fmt, tag, ##__VA_ARGS__)
+#define LOG_ERR(tag, fmt, ...) log_e("%s: " fmt, tag, ##__VA_ARGS__)
+#endif
 #if FREEINK_DEVICE_EEGO_A4
 #include <esp_mac.h>
 
@@ -241,9 +247,12 @@ void FrontlightManager::begin() {
   releasePinHold(fl.gpio);
   releasePinHold(fl.gpioWarm);
 
-  bool attachOk = attachChannel(fl.gpio, LEDC_CH_COOL, fl.pwmFrequency, fl.pwmResolutionBits);
+  const bool coolOk = attachChannel(fl.gpio, LEDC_CH_COOL, fl.pwmFrequency, fl.pwmResolutionBits);
+  bool warmOk = true;
+  bool attachOk = coolOk;
   if (fl.gpioWarm != BoardConfig::PIN_UNASSIGNED) {
-    attachOk = attachChannel(fl.gpioWarm, LEDC_CH_WARM, fl.pwmFrequency, fl.pwmResolutionBits) || attachOk;
+    warmOk = attachChannel(fl.gpioWarm, LEDC_CH_WARM, fl.pwmFrequency, fl.pwmResolutionBits);
+    attachOk = warmOk || attachOk;
   }
 #ifdef FREEINK_FRONTLIGHT_LS
   // Defensive: a prior sleep cycle may have left the pads held (park() latches a
@@ -274,7 +283,7 @@ void FrontlightManager::begin() {
 #else
   (void)attachOk;
 #endif
-  _begun = true;
+  _begun = coolOk && warmOk;
   setBrightness(0);
   LOG_INF("FrontlightMgr", "begin: attached gpio=%d warm=%d ok=%d", fl.gpio, fl.gpioWarm, attachOk ? 1 : 0);
 #endif

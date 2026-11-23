@@ -12,6 +12,15 @@ c++ -std=c++17 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-private-f
   -I../../include -I../../../Microphone/include test_metalio_managers.cpp \
   ../../src/AudioManager.cpp ../../../Microphone/src/Microphone.cpp -o "$BUILD_DIR/managers"
 "$BUILD_DIR/managers"
+c++ -std=c++17 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-private-field -DFREEINK_DEVICE_METALIO_EINK4_PLUS=1 \
+  -Istubs -I../../../InputManager/test/host/metalio_stubs \
+  -I../../../BoardConfig/include test_metalio_audio.cpp -o "$BUILD_DIR/test"
+"$BUILD_DIR/test"
+c++ -std=c++17 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-private-field -DFREEINK_DEVICE_METALIO_EINK4_PLUS=1 \
+  -Istubs -I../../../InputManager/test/host/metalio_stubs -I../../../BoardConfig/include \
+  -I../../include -I../../../Microphone/include test_metalio_managers.cpp \
+  ../../src/AudioManager.cpp ../../../Microphone/src/Microphone.cpp -o "$BUILD_DIR/managers"
+"$BUILD_DIR/managers"
 for flags in '-DFREEINK_DEVICE_METALIO_EINK4=1 -DFREEINK_CAP_AUDIO=0 -DFREEINK_CAP_MIC=0' '-DFREEINK_DEVICE_X4=1'; do
   c++ -std=c++17 -Wall -Wextra -Werror -Wno-unused-parameter -Wno-unused-private-field $flags \
     -Istubs -I../../../InputManager/test/host/metalio_stubs -I../../../BoardConfig/include \

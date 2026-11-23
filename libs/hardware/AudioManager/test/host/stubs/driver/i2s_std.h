@@ -30,8 +30,8 @@ inline int i2s_new_channel(const i2s_chan_config_t* c, i2s_chan_handle_t* tx, i2
 }
 inline int i2s_channel_init_std_mode(i2s_chan_handle_t h, const i2s_std_config_t* c) {
   assert(c->clk_cfg.sample_rate_hz == 16000 && c->slot_cfg.width == 32 && c->slot_cfg.mode == 2);
-  assert(c->gpio_cfg.mclk == -1 && c->gpio_cfg.bclk == 6 && c->gpio_cfg.ws == 43 &&
-         c->gpio_cfg.dout == 7 && c->gpio_cfg.din == 17);
+  assert(c->gpio_cfg.mclk == -1 && c->gpio_cfg.bclk == (FREEINK_DEVICE_METALIO_EINK4_PLUS ? 42 : 6) && c->gpio_cfg.ws == 43 &&
+         c->gpio_cfg.dout == (FREEINK_DEVICE_METALIO_EINK4_PLUS ? 44 : 7) && c->gpio_cfg.din == (FREEINK_DEVICE_METALIO_EINK4_PLUS ? 45 : 17));
   if (++initCalls == failInitAt) return ESP_FAIL;
   h->initialized = true; return ESP_OK;
 }

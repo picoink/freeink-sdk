@@ -10,7 +10,7 @@
 #include <driver/i2s_std.h>
 
 #include <memory>
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
 #include <MetalioAudio.h>
 #endif
 
@@ -113,7 +113,7 @@ bool AudioManager::begin() {
   if (begun_) return true;
   const auto& cfg = BoardConfig::ACTIVE.audio;
   if (!present()) return false;
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (cfg.output == BoardConfig::AudioOutput::MetalioModule) {
     begun_ = metalio::acquireAudio(this, false);
     return begun_;
@@ -169,7 +169,7 @@ void AudioManager::codecMute(bool mute) {
 }
 
 void AudioManager::setAmp(bool on) {
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (BoardConfig::ACTIVE.audio.output == BoardConfig::AudioOutput::MetalioModule) {
     if (!metalio::setAmplifier(on)) log_e("Metalio amplifier control failed");
     return;
@@ -184,7 +184,7 @@ void AudioManager::powerDown() {
   const auto& cfg = BoardConfig::ACTIVE.audio;
   if (!begun_) return;
   stop();
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (cfg.output == BoardConfig::AudioOutput::MetalioModule) {
     teardownI2s();
     begun_ = false;
@@ -240,7 +240,7 @@ bool AudioManager::parseWavHeader(const WavSource& source, WavInfo& info) {
 }
 
 bool AudioManager::ensureI2s(uint32_t sampleRate) {
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (BoardConfig::ACTIVE.audio.output == BoardConfig::AudioOutput::MetalioModule) {
     if (sampleRate != metalio::AUDIO_RATE || !metalio::startAudio(this, false)) return false;
     txChan_ = metalio::audioBus().tx;
@@ -305,7 +305,7 @@ bool AudioManager::ensureI2s(uint32_t sampleRate) {
 }
 
 void AudioManager::teardownI2s() {
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (BoardConfig::ACTIVE.audio.output == BoardConfig::AudioOutput::MetalioModule) {
     metalio::releaseAudio(this, false);
     txChan_ = nullptr;
@@ -333,7 +333,7 @@ bool AudioManager::play(const WavSource& source, bool loop) {
     log_e("unsupported WAV (need 16-bit PCM, 1-2ch, 8-48 kHz)");
     return false;
   }
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (BoardConfig::ACTIVE.audio.output == BoardConfig::AudioOutput::MetalioModule &&
       (info.sampleRate != metalio::AUDIO_RATE || info.dataLength == 0 ||
        info.dataLength % (info.channels * sizeof(int16_t)) != 0)) return false;
@@ -358,7 +358,7 @@ bool AudioManager::play(const WavSource& source, bool loop) {
   // Same shape as the OEM "musicTask" (high priority, core 0 — the Arduino
   // loop owns core 1); 8K stack covers the on-stack sample buffers.
   if (xTaskCreatePinnedToCore(taskEntry, "audio_play", 8192, this, 10, &task_, 0) != pdPASS) {
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
     if (BoardConfig::ACTIVE.audio.output == BoardConfig::AudioOutput::MetalioModule) {
       metalio::stopAudio(this, false);
       chanEnabled_ = false;
@@ -392,7 +392,7 @@ bool AudioManager::playBuffer(const uint8_t* data, size_t len, bool loop) {
 }
 
 void AudioManager::stop() {
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (BoardConfig::ACTIVE.audio.output == BoardConfig::AudioOutput::MetalioModule) {
     if (!begun_) return;
     stopRequested_ = true;
@@ -417,7 +417,7 @@ void AudioManager::stop() {
 
 void AudioManager::taskEntry(void* self) { static_cast<AudioManager*>(self)->taskLoop(); }
 
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
 void AudioManager::taskLoopMetalio() {
   auto tx = static_cast<i2s_chan_handle_t>(txChan_);
   // Fixed stack buffers, no allocations in the streaming loop. 128 frames
@@ -482,7 +482,7 @@ void AudioManager::taskLoopMetalio() {
 #endif
 
 void AudioManager::taskLoop() {
-#if FREEINK_DEVICE_METALIO_EINK4
+#if FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS
   if (BoardConfig::ACTIVE.audio.output == BoardConfig::AudioOutput::MetalioModule) {
     taskLoopMetalio();
     return;

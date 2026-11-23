@@ -43,6 +43,12 @@ class Imu {
   // Restarts sampling after sleep(). Returns false when absent or on I2C
   // error; allow for a settling transient before trusting samples.
   bool wake();
+  // SC7A20H AOI1, latched/open-drain/active-low for the shared GPIO2 line.
+  // Threshold is in 16 mg steps (1..127); duration in 10 ms steps (0..127).
+  bool configureMotionInterrupt(bool enabled, uint8_t threshold = 16, uint8_t duration = 0);
+  bool readMotionInterrupt(bool& motion);
+  // Disable routes and release the shared interrupt before system sleep.
+  bool silenceInterrupt();
 
  private:
   bool begun_ = false;

@@ -364,13 +364,13 @@
 #define FREEINK_CAP_COLOR (FREEINK_DEVICE_M5)
 #endif
 #ifndef FREEINK_CAP_AUDIO
-#define FREEINK_CAP_AUDIO (FREEINK_DEVICE_MURPHY || FREEINK_DEVICE_M5 || FREEINK_DEVICE_METALIO_EINK4)
+#define FREEINK_CAP_AUDIO (FREEINK_DEVICE_MURPHY || FREEINK_DEVICE_M5 || FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS)
 #endif
 // Microphone capture (PDM or module I2S). Separate from FREEINK_CAP_AUDIO (output): the
 // Sticky has a PDM mic but no output codec. The Microphone lib compiles its
 // capture path only when this is set; otherwise it links stub bodies.
 #ifndef FREEINK_CAP_MIC
-#define FREEINK_CAP_MIC (FREEINK_DEVICE_STICKY || FREEINK_DEVICE_PAPERMONO || FREEINK_DEVICE_METALIO_EINK4)
+#define FREEINK_CAP_MIC (FREEINK_DEVICE_STICKY || FREEINK_DEVICE_PAPERMONO || FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_METALIO_EINK4_PLUS)
 #endif
 // On-board I2C sensors. Each lib (Rtc / EnvironmentSensor / Imu) compiles its
 // I2C driver only when its flag is set; otherwise it links stub bodies.
@@ -1841,6 +1841,9 @@ constexpr BoardProfile METALIO_EINK4_PLUS_BASE = {
 // The ~297 PPI 684x1216 portrait UI uses a 1.6x layout, sized on hardware.
 constexpr BoardProfile METALIO_EINK4_PLUS = [] {
   BoardProfile p = METALIO_EINK4_PLUS_BASE;
+  p.audio = {AudioOutput::MetalioModule, 42, 43, 44, PIN_UNASSIGNED, PIN_UNASSIGNED, true,
+             PIN_UNASSIGNED, PIN_UNASSIGNED, PIN_UNASSIGNED, 0, PIN_UNASSIGNED};
+  p.mic = {MicInput::MetalioModule, 42, 45, PIN_UNASSIGNED, true};
   p.layoutScale = 1.6f;
   return p;
 }();

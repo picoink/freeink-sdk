@@ -1,3 +1,8 @@
+/* Keep the bundled decoder separate from ESP ROM's incompatible JDEC ABI.
+ * Some ESP32 targets provide jd_prepare/jd_decomp as ROM linker symbols. */
+#define jd_prepare freeink_book_jd_prepare
+#define jd_decomp freeink_book_jd_decomp
+
 /*----------------------------------------------*/
 /* TJpgDec System Configurations R0.03          */
 /*----------------------------------------------*/

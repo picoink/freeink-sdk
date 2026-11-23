@@ -49,6 +49,13 @@ constexpr uint8_t RX8130_BACKUP_ONLY = 0x01;
 constexpr uint8_t RX8130_CLEAR_VLF = 0xBD;
 constexpr uint8_t RX8130_CLEAR_TF = 0xAF;  // W0C: preserve the other flags.
 
+bool validDate(const Rtc::DateTime& dt) {
+  if (dt.year < 1900 || dt.year > 2099 || dt.month < 1 || dt.month > 12 || dt.day < 1 ||
+      dt.hour > 23 || dt.minute > 59 || dt.second > 59 || dt.weekday > 6) return false;
+  constexpr uint8_t days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+  const bool leap = dt.year % 4 == 0 && (dt.year % 100 != 0 || dt.year % 400 == 0);
+  return dt.day <= days[dt.month - 1] + (dt.month == 2 && leap);
+}
 bool g_wireReady[2] = {false, false};
 TwoWire& sensorWire() {
   const auto& s = BoardConfig::ACTIVE.sensors;
@@ -159,7 +166,8 @@ bool Rtc::now(DateTime& out) {
       out.month = bcdToDec(raw[5] & 0x1FU);
       const uint8_t yy = bcdToDec(raw[6]);
       out.year = (raw[5] & 0x80U) ? static_cast<uint16_t>(1900 + yy) : static_cast<uint16_t>(2000 + yy);
-      return true;
+      uint8_t control = 0;
+      return validDate(out) && readRegs(addr, 0x00, &control, 1) && !(control & 0xA8);
     }
     case BoardConfig::RtcType::Pcf85063: {
       if (!readRegs(addr, PCF85063_REG_TIME, raw, sizeof(raw))) return false;
@@ -218,6 +226,7 @@ bool Rtc::now(DateTime& out) {
 }
 
 bool Rtc::set(const DateTime& dt) {
+  if (!validDate(dt)) return false;
   const freeink::I2cBusLock busLock;  // direct transfers below, not only helpers
   const uint8_t addr = BoardConfig::ACTIVE.sensors.rtcAddr;
   if (!begun_ || addr == 0) return false;
@@ -225,7 +234,7 @@ bool Rtc::set(const DateTime& dt) {
   const uint8_t centuryBit = dt.year < 2000 ? 0x80U : 0x00U;
   ensureWire();
   auto& wire = sensorWire();
-  if (s.rtcType == BoardConfig::RtcType::None) return false;
+  if (s.rtcType == BoardConfig::RtcType::None || (s.rtcType != BoardConfig::RtcType::Pcf8563 && dt.year < 2000)) return false;
   if (s.rtcType == BoardConfig::RtcType::Rx8130) {
     uint8_t control = 0;
     if (!readRegs(addr, RX8130_REG_CONTROL0, &control, 1) ||
@@ -274,6 +283,10 @@ bool Rtc::set(const DateTime& dt) {
   }
   wire.write(decToBcd(static_cast<uint8_t>(dt.year % 100)));
   if (wire.endTransmission() != 0) return false;
+  if (s.rtcType == BoardConfig::RtcType::Pcf8563) {
+    uint8_t control = 0;
+    return readRegs(addr, 0x00, &control, 1) && writeReg(addr, 0x00, control & ~0xA8);
+  }
   if (s.rtcType == BoardConfig::RtcType::Ds3231) {
     uint8_t status = 0;
     if (readRegs(addr, DS3231_REG_STATUS, &status, 1)) {
@@ -284,6 +297,16 @@ bool Rtc::set(const DateTime& dt) {
 }
 
 bool Rtc::cancelWakeTimer() {
+  const freeink::I2cBusLock busLock;
+  if (begun_ && BoardConfig::ACTIVE.sensors.rtcType == BoardConfig::RtcType::Pcf8563) {
+    const uint8_t addr = BoardConfig::ACTIVE.sensors.rtcAddr;
+    uint8_t timer = 0, ctrl = 0;
+    bool ok = readRegs(addr, 0x0E, &timer, 1) && writeReg(addr, 0x0E, timer & ~0x80);
+    const bool disabled = readRegs(addr, 0x01, &ctrl, 1) &&
+        writeReg(addr, 0x01, (ctrl & ~0x05) | 0x08);  // TF W0C; preserve AF even if it arrives now.
+    return ok && disabled && readRegs(addr, 0x0E, &timer, 1) &&
+        readRegs(addr, 0x01, &ctrl, 1) && !(timer & 0x80) && !(ctrl & 0x05);
+  }
   if (!begun_ || BoardConfig::ACTIVE.sensors.rtcType != BoardConfig::RtcType::Rx8130) return false;
   const uint8_t addr = BoardConfig::ACTIVE.sensors.rtcAddr;
   uint8_t extension = 0, control = 0;
@@ -300,6 +323,24 @@ bool Rtc::cancelWakeTimer() {
 
 bool Rtc::armWakeTimer(const uint32_t seconds) {
   const freeink::I2cBusLock busLock;  // direct transfers below, not only helpers
+  if (begun_ && BoardConfig::ACTIVE.sensors.rtcType == BoardConfig::RtcType::Pcf8563) {
+    if (!seconds || seconds > 255UL * 60UL) return false;
+    const uint8_t addr = BoardConfig::ACTIVE.sensors.rtcAddr;
+    uint8_t status = 0, ctrl = 0, sec = 0;
+    if (!readRegs(addr, 0x00, &status, 1) || !readRegs(addr, 0x01, &ctrl, 1) ||
+        !readRegs(addr, 0x02, &sec, 1) || (status & 0xA8) || (ctrl & 0x02) || (sec & 0x80)) return false;
+    if (!cancelWakeTimer()) return false;
+    const uint8_t clock = seconds > 255 ? 3 : 2;
+    const uint8_t count = seconds > 255 ? (seconds + 59) / 60 : seconds;
+    const uint8_t control = (ctrl & ~0x15) | 0x09;  // level IRQ, TIE on, TF cleared, AF preserved
+    uint8_t back = 0;
+    bool ok = writeReg(addr, 0x0E, clock) && writeReg(addr, 0x0F, count) &&
+        readRegs(addr, 0x0F, &back, 1) && back == count && writeReg(addr, 0x01, control) &&
+        writeReg(addr, 0x0E, clock | 0x80) && readRegs(addr, 0x0E, &back, 1) && back == (clock | 0x80) &&
+        readRegs(addr, 0x01, &back, 1) && (back & 0x13) == 1;
+    if (!ok) cancelWakeTimer();
+    return ok;
+  }
   if (!begun_ || BoardConfig::ACTIVE.sensors.rtcType != BoardConfig::RtcType::Rx8130 || seconds == 0 ||
       seconds > 65535UL * 60UL)
     return false;
@@ -340,6 +381,13 @@ bool Rtc::armWakeTimer(const uint32_t seconds) {
 
 bool Rtc::readWakeTimer(bool& fired) {
   fired = false;
+  if (begun_ && BoardConfig::ACTIVE.sensors.rtcType == BoardConfig::RtcType::Pcf8563) {
+    uint8_t ctrl = 0, sec = 0;
+    const uint8_t addr = BoardConfig::ACTIVE.sensors.rtcAddr;
+    if (!readRegs(addr, 0x01, &ctrl, 1) || !readRegs(addr, 0x02, &sec, 1)) return false;
+    fired = (ctrl & 0x05) == 0x05 && !(sec & 0x80);
+    return true;
+  }
   if (!begun_ || BoardConfig::ACTIVE.sensors.rtcType != BoardConfig::RtcType::Rx8130) return false;
   const uint8_t addr = BoardConfig::ACTIVE.sensors.rtcAddr;
   uint8_t flags = 0, extension = 0, control = 0;

@@ -8,15 +8,27 @@
 #define IRAM_ATTR
 constexpr int HIGH=1, LOW=0, INPUT=1, OUTPUT=3, INPUT_PULLUP=5, INPUT_PULLDOWN=6, FALLING=2, ADC_11db=3, OUTPUT_OPEN_DRAIN=0x13;
 inline unsigned long fakeNow=1000;
-inline int gpioLevels[49]={};
-inline unsigned gpioWrites[49]={};
+inline int gpioLevels[64]={};
+inline unsigned gpioWrites[64]={};
 inline void (*touchIsr)()=nullptr;
 inline void pinMode(int,int) {}
 inline void digitalWrite(int p,int v) { gpioLevels[p]=v; ++gpioWrites[p]; }
 inline int digitalRead(int p) { return gpioLevels[p]; }
+#ifdef FREEINK_INPUT_ASYNC_HOST
+#include <chrono>
+#include <thread>
+inline void delay(unsigned long n) { std::this_thread::sleep_for(std::chrono::milliseconds(n)); }
+#else
 inline void delay(unsigned long n) { fakeNow+=n; }
+#endif
 inline void delayMicroseconds(unsigned int) {}
-inline unsigned long millis() { return fakeNow; }
+inline unsigned long millis() {
+#ifdef FREEINK_INPUT_ASYNC_HOST
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+#else
+  return fakeNow;
+#endif
+}
 inline void analogSetAttenuation(int) {}
 inline int analogReadMilliVolts(int) { return 3300; }
 inline int analogRead(int) { return 4095; }

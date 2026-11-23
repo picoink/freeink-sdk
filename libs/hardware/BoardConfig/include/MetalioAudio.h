@@ -10,6 +10,10 @@
 
 namespace freeink { namespace metalio {
 constexpr uint32_t AUDIO_RATE = 16000;
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+inline bool ensureBooted() { return metalio_plus::ensureBooted(); }
+inline bool setAmplifier(bool enabled) { return metalio_plus::setAmplifier(enabled); }
+#endif
 
 struct AudioBus {
   i2s_chan_handle_t tx = nullptr;
@@ -18,7 +22,11 @@ struct AudioBus {
   const void* microphone = nullptr;
   bool txEnabled = false;
   bool rxEnabled = false;
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  HardwareSerial uart{1};
+#else
   HardwareSerial uart{2};
+#endif
 };
 
 inline AudioBus& audioBus() {
@@ -35,7 +43,42 @@ inline void destroyAudioBus() {
   if (b.rx) i2s_del_channel(b.rx);
   b.tx = b.rx = nullptr;
   b.uart.end();
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  metalio_plus::setAmplifier(false);
+  // P1.4 also supplies the panel PMIC on Plus hardware. Only board sleep
+  // may cut this rail after the display has powered down.
+#endif
 }
+
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+inline bool confirmModuleMode(HardwareSerial& uart) {
+  for (unsigned attempt = 0; attempt < 4; ++attempt) {
+    while (uart.available()) uart.read();
+    if (uart.print("AT+MODE=1\r\n") != 11) return false;
+    uart.flush();
+    char line[128] = {};
+    size_t used = 0;
+    bool overflow = false;
+    const auto start = millis();
+    while (millis() - start < 1000) {
+      while (uart.available()) {
+        const char c = uart.read();
+        if (c == '\r' || c == '\n') {
+          line[used] = 0;
+          const char* mode = strstr(line, "SET MODE 1");
+          if (!overflow && mode && (mode[10] == 0 || mode[10] == ' ') && !strstr(line, "ERROR") && !strstr(line, "FAIL")) return true;
+          if (strstr(line, "ERROR") || strstr(line, "FAIL")) break;
+          used = 0; overflow = false;
+        } else if (used < sizeof(line) - 1) line[used++] = c;
+        else overflow = true;
+      }
+      delay(5);
+    }
+    if (attempt < 3) delay(1000);
+  }
+  return false;
+}
+#endif
 
 inline bool acquireAudio(const void* owner, bool input) {
   auto& b = audioBus();
@@ -44,12 +87,22 @@ inline bool acquireAudio(const void* owner, bool input) {
   if (!b.tx) {
     if (!ensureBooted() || !setAmplifier(false)) return false;
     // Vendor InitializeBTAudio/BtDefaultModeTask: UART2, mode 1 supplies clocks.
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+    if (!metalio_plus::setOutput(metalio_plus::PIN_BT_AMP_POWER, true)) return false;
+    delay(700);
+    b.uart.begin(115200, SERIAL_8N1, 38, 39);
+#else
     b.uart.begin(115200, SERIAL_8N1, 47, 48);
-    if (b.uart.print("AT+RX=2\r\n") != 9) { b.uart.end(); return false; }
+#endif
+    if (b.uart.print("AT+RX=2\r\n") != 9) { destroyAudioBus(); return false; }
     b.uart.flush();
     delay(700);
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+    if (!confirmModuleMode(b.uart)) { destroyAudioBus(); return false; }
+#else
     if (b.uart.print("AT+MODE=1\r\n") != 11) { b.uart.end(); return false; }
     b.uart.flush();
+#endif
 
     i2s_chan_config_t chan = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_SLAVE);
     chan.auto_clear = true;

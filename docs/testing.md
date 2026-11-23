@@ -31,6 +31,15 @@ checks skip when those converters are unavailable. It builds layout tests for
 the default, SMALL, and LARGE memory profiles. Build outputs go under the system
 temporary directory.
 
+The layout suite checks incremental plain-text output against one-shot layout,
+including early pages, byte progress, I/O failures, abort/restart, and limited
+arenas. Both EPUB and TXT also check bounded input chunks against one-shot
+output; an idle UI step can yield without waiting for a complete page.
+The JPEG symbol test links dummy platform `jd_prepare` / `jd_decomp`
+symbols beside the bundled decoder to prevent accidental use of an incompatible
+ESP ROM implementation. The consumer ELF and physical board still need checking
+because host tests do not use the ESP ROM linker script.
+
 ## Progressive JPEG
 
 ```sh
@@ -178,3 +187,21 @@ sh libs/network/JsonSax/test/host/run.sh
 
 Checks optional bounded string prefixes, unchanged default overflow handling,
 continued parsing after long strings, and rejection of oversized keys under ASan/UBSan.
+
+## Metalio Plus integration regressions
+
+```sh
+sh libs/hardware/BoardConfig/test/host/run_metalio_plus.sh
+sh libs/hardware/InputManager/test/host/run_async.sh
+sh libs/hardware/AudioManager/test/host/run_metalio.sh
+python3 libs/hardware/Rtc/test/host/run.py
+sh libs/hardware/SDCardManager/test/host/run_native.sh
+sh libs/hardware/UsbMassStorage/test/host/run.sh
+```
+
+The async input and USB tests run production worker/callback code on real host
+threads. The native SDMMC model deliberately hides a write error after a failed
+transaction, checking that the adapter still reports failure. BatteryMonitor's
+standard suite also includes CX25601N setup, quantization, status, recharge and
+initialization fault injection. All of these complement, rather than replace,
+the consumer build and physical board checks.

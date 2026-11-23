@@ -22,13 +22,13 @@ class PowerManager {
   // Arm wake-on-power-button using the SoC-correct wakeup source and the active
   // board's power pin + polarity (powerActiveHigh -> wake on HIGH, else LOW).
   // Returns false if the board has no power pin (PIN_UNASSIGNED); nothing armed.
-  static bool armPowerButtonWakeup();
+  static bool armPowerButtonWakeup(bool rtcWake = false);
 
   // Arm deep-sleep wake on an arbitrary set of GPIOs (gpioMask, wakeLow = wake on
   // the low level) using the SoC-correct source (ext1 on Xtensa, gpio on RISC-V).
   // Use for extra wake lines beyond the power button — a touch INT, a second
   // button, an IO-expander INT. The pins must be RTC-capable on ext1 parts.
-  static void armWakeOnPins(uint64_t gpioMask, bool wakeLow = true);
+  static bool armWakeOnPins(uint64_t gpioMask, bool wakeLow = true);
 
   // Poll the power-button GPIO (raw read, with the matching pull) until released,
   // so deep sleep isn't immediately cancelled by a still-held press.

@@ -99,6 +99,9 @@ python3 ../../tools/hyphc.py ../../third_party/hyphen-patterns/hyph-en-us.pat.tx
 python3 ../../tools/hyphc.py ../fixtures/hyph-test-ru.pat.txt \
   "$BUILD_DIR/hyph-test-ru.fibh"
 
+cc $CC_FLAGS test_jpeg_symbols.c "$BUILD_DIR/obj/tjpgd_impl.o" -o "$BUILD_DIR/test_jpeg_symbols"
+"$BUILD_DIR/test_jpeg_symbols"
+
 mkdir -p "$BUILD_DIR/cache"
 "$BUILD_DIR/test_freeinkbook" "$BUILD_DIR/fixtures"
 "$BUILD_DIR/test_layout" "$BUILD_DIR/fixtures" "$BUILD_DIR/hyph-en-us.fibh" "$BUILD_DIR/hyph-test-ru.fibh"

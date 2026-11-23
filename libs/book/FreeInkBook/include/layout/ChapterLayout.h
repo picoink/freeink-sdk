@@ -184,11 +184,19 @@ class ChapterLayoutSession {
                    Arena& scratch, PageSink& sink, Arena* parseScratch = nullptr,
                    Arena* prescanScratch = nullptr);
 
+  // UTF-8 TXT with the same paragraph/BOM rules as layoutPlainText(). The
+  // source must remain alive until completion/abort, just like an EPUB source.
+  BookStatus beginPlainText(BookSource& source, const LayoutParams& params,
+                            Arena& scratch, PageSink& sink);
+
   // Feeds the parse until at least `minNewPages` more pages were delivered to
   // the sink or the chapter ends (granularity is one input chunk, so it can
   // overshoot by a page). On the final step the layout tail is flushed and
-  // done() becomes true. Returns Ok on progress, or the failure status.
-  BookStatus step(uint32_t minNewPages);
+  // done() becomes true. maxInputChunks optionally bounds input work even
+  // when no new page is ready, allowing UI consumers to yield between chunks.
+  // It is not a wall-clock deadline: one paragraph may span several chunks.
+  // Returns Ok on progress, or the failure status.
+  BookStatus step(uint32_t minNewPages, uint32_t maxInputChunks = UINT32_MAX);
 
   bool done() const { return state_ == State::Done; }
   bool active() const { return state_ == State::Parsing; }
@@ -196,7 +204,7 @@ class ChapterLayoutSession {
   // Valid once done(): total extracted characters (progress denominator).
   uint32_t totalChars() const;
   // Input-side progress for estimated-total-pages: bytes fed / entry size.
-  uint64_t bytesConsumed() const { return sax_.bytesConsumed(); }
+  uint64_t bytesConsumed() const { return plainSource_ ? plainOffset_ : sax_.bytesConsumed(); }
   uint64_t bytesTotal() const { return bytesTotal_; }
 
   // Tears down the parse (safe in any state). The owner resets the arenas.
@@ -207,6 +215,11 @@ class ChapterLayoutSession {
 
   class CountingSink;  // forwards to the caller sink, counting pages
 
+  BookStatus feedPlainText(bool& atEnd);
+  BookSource* plainSource_ = nullptr;
+  char* plainBuffer_ = nullptr;
+  uint64_t plainOffset_ = 0;
+  uint32_t plainNewlines_ = 0;
   XmlSaxSession sax_;
   void* engine_ = nullptr;        // LayoutEngine, placement-new'd in the arena
   void* countingSink_ = nullptr;  // CountingSink, placement-new'd in the arena

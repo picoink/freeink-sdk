@@ -17,7 +17,19 @@ int main() {
   uartFail = true;
   assert(!acquireAudio(&speaker, false));
   assert(!audioBus().speaker && !audioBus().tx);
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  const auto sharedRail = 1u << freeink::metalio_plus::PIN_BT_AMP_POWER;
+  assert(freeink::metalio_plus::outputLatch() & sharedRail);
+#endif
   uartFail = false;
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  for (const char* bad : {"", "ERROR\r\n", "SET MODE 10\r\n", "FAIL SET MODE 1\r\n"}) {
+    uartReply = bad;
+    assert(!acquireAudio(&speaker, false) && !audioBus().tx);
+    assert(freeink::metalio_plus::outputLatch() & sharedRail);
+  }
+  uartReply = "SET MODE 1\r\n";
+#endif
   failAllocation = true;
   assert(!acquireAudio(&speaker, false));
   assert(!audioBus().speaker && !audioBus().tx);
@@ -50,6 +62,10 @@ int main() {
   assert(txFake.enabled && !rxFake.enabled);
   releaseAudio(&speaker, false);
   assert(txFake.deleted && rxFake.deleted && !audioBus().tx && !audioBus().rx);
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  assert(freeink::metalio_plus::outputLatch() & sharedRail);
+  assert(!(freeink::metalio_plus::outputLatch() & (1u << freeink::metalio_plus::PIN_AMP_ENABLE)));
+#endif
   // Fresh begin after full shutdown sends the mode commands again.
   assert(acquireAudio(&speaker, false));
   releaseAudio(&speaker, false);

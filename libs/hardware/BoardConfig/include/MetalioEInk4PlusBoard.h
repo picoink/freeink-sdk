@@ -31,7 +31,7 @@ constexpr uint8_t PIN_VOLUME_UP = 8;       // P1.0, input, active low
 constexpr uint8_t PIN_VOLUME_DOWN = 9;     // P1.1, input, active low
 constexpr uint8_t PIN_TOUCH_RESET = 10;    // P1.2, high = powered (shared with 4G/camera reset)
 constexpr uint8_t PIN_POWER_PULSE = 11;    // P1.3, shutdown pulse to the power IC, idles low
-constexpr uint8_t PIN_BT_AMP_POWER = 12;   // P1.4, BT audio + amplifier rail, active high
+constexpr uint8_t PIN_BT_AMP_POWER = 12;   // P1.4, shared audio/panel PMIC rail, active high
 constexpr uint8_t PIN_RTC_INT = 14;        // P1.6, input
 constexpr uint8_t PIN_POWER_KEY = 15;      // P1.7, input, active low
 
@@ -78,8 +78,10 @@ inline bool setOutputs(uint16_t mask, uint16_t levels) {
   if (!ready()) return false;
   std::lock_guard<std::mutex> lock(outputMutex());
   uint16_t& latch = outputLatch();
-  latch = (latch & ~mask) | (levels & mask);
-  return writeRegister(2, latch);
+  const uint16_t next = (latch & ~mask) | (levels & mask);
+  if (!writeRegister(2, next)) return false;
+  latch = next;
+  return true;
 }
 
 inline bool setOutput(uint8_t pin, bool high) {
@@ -112,7 +114,8 @@ inline bool ensureBooted(uint32_t waitMs = 0) {
   for (;;) {
     {
       const freeink::I2cBusLock busLock;
-      if (Wire.begin(SDA_PIN, SCL_PIN, 400000)) {
+      // Match the vendor shared-bus speed, including TPS65185 transactions.
+      if (Wire.begin(SDA_PIN, SCL_PIN, 100000)) {
         Wire.setTimeOut(10);
         if (readRegister(0, inputLevels)) break;
       }
@@ -214,7 +217,16 @@ inline bool powerKeyPressed() { return !(readInputs() & (1u << PIN_POWER_KEY)); 
 // every expander pin except P1.7 becomes an output at its idle level (panel PMIC
 // lines low, key lines high) so nothing else can pull INT, then the ports are
 // read to clear it. Returns false if INT does not go idle.
-inline bool prepareWakeOnPowerKey() {
+inline uint16_t& awakeLatch() { static uint16_t value = 0; return value; }
+inline bool restoreAfterSleepAbort() {
+  std::lock_guard<std::mutex> lock(outputMutex());
+  if (!writeRegister(2, awakeLatch()) || !writeRegister(6, static_cast<uint16_t>(~OUTPUTS))) return false;
+  outputLatch() = awakeLatch();
+  delay(80);
+  return true;
+}
+
+inline bool prepareWakeOnPowerKey(bool rtcWake = false) {
   if (!ensureBooted()) return false;
   constexpr uint16_t tpsLines = (1u << PIN_TPS_VCOM_CTRL) | (1u << PIN_TPS_PWRUP) | (1u << PIN_TPS_WAKEUP);
   constexpr uint16_t idleHigh = (1u << PIN_VOLUME_UP) | (1u << PIN_VOLUME_DOWN) | (1u << PIN_RTC_INT) |
@@ -222,15 +234,18 @@ inline bool prepareWakeOnPowerKey() {
   {
     std::lock_guard<std::mutex> lock(outputMutex());
     uint16_t& latch = outputLatch();
-    latch = (latch & ~(tpsLines | (1u << PIN_TPS_PWR_GOOD) | (1u << PIN_POWER_PULSE))) | idleHigh;
-    if (!writeRegister(2, latch) || !writeRegister(6, 1u << PIN_POWER_KEY)) return false;
+    awakeLatch() = latch;
+    latch = (latch & ~(tpsLines | (1u << PIN_TPS_PWR_GOOD) | (1u << PIN_POWER_PULSE) | (1u << PIN_MOTOR) |
+                        (1u << PIN_AMP_ENABLE) | (1u << PIN_BT_AMP_POWER) |
+                        (1u << PIN_SCREEN_POWER) | (1u << PIN_TOUCH_RESET))) | idleHigh;
+    if (!writeRegister(2, latch) || !writeRegister(6, (1u << PIN_POWER_KEY) | (rtcWake ? (1u << PIN_RTC_INT) : 0))) return false;
   }
   uint16_t v;
-  readRegister(0, v);
+  if (!readRegister(0, v)) return false;
   pinMode(EXPANDER_INT_GPIO, INPUT_PULLUP);
   for (int ms = 0; ms < 100; ms += 5) {
     if (digitalRead(EXPANDER_INT_GPIO) == HIGH) return true;
-    readRegister(0, v);
+    if (!readRegister(0, v)) return false;
     delay(5);
   }
   return false;

@@ -2,6 +2,9 @@
 #include <Microphone.h>
 #include <MetalioAudio.h>
 #include <cassert>
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+using freeink::metalio_plus::PIN_AMP_ENABLE;
+#endif
 #include <cstdio>
 #include <vector>
 using namespace freeink::metalio;

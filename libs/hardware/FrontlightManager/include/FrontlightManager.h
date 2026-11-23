@@ -20,6 +20,8 @@ class FrontlightManager {
  public:
   // Bring up the PWM channel(s). No-op if the board has no frontlight.
   void begin();
+  // PWM backends require every configured channel to attach successfully.
+  bool ready() const { return _begun; }
 
   // Set brightness as a 0-100 percentage, mapped to duty through a perceptual
   // gamma-1.6554 curve (1% is the smallest non-zero duty step, not 1% linear
