@@ -42,6 +42,7 @@ class HardwareSerial {
   int available() const { return 0; }
   int read() { return -1; }
   void flush() {}
+  size_t write(const uint8_t* data, size_t size) { return std::fwrite(data, 1, size, stderr); }
   void print(const char* s) { std::fputs(s, stderr); }
   void println(const char* s = "") { std::fprintf(stderr, "%s\n", s); }
   void printf(const char* format, ...) {

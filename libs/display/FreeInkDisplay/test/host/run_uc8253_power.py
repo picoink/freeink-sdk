@@ -17,8 +17,10 @@ with tempfile.TemporaryDirectory(prefix="uc8253_power-test-") as directory:
     shutil.copy2(SOURCE / "lut/Uc8253X3Luts.h", root / "lut/Uc8253X3Luts.h")
     shutil.copy2(SOURCE / "lut/UltraChipDirectGrayLuts.h", root / "lut/UltraChipDirectGrayLuts.h")
     shutil.copy2(SOURCE.parent / "include/GrayscaleCapabilities.h", root / "GrayscaleCapabilities.h")
+    shutil.copy2(SOURCE.parent / "include/RefreshMetrics.h", root / "RefreshMetrics.h")
     panel = root / "driver/PanelDriver.h"
     panel.write_text(panel.read_text().replace("../../include/GrayscaleCapabilities.h", "../GrayscaleCapabilities.h"))
+    panel.write_text(panel.read_text().replace("../../include/RefreshMetrics.h", "../RefreshMetrics.h"))
     (root / "Arduino.h").write_text('''#pragma once
 #include <cstdint>
 #include <cstddef>
@@ -64,6 +66,7 @@ public:
     (c == 0x10 ? oldPlane : newPlane).assign(size_t(h)*wb,v);
   }
   void reset(int) {}
+  bool isBusy() const { return false; }
   void waitBusy(const char*) {}
   void waitRefreshComplete(const char*) {}
   struct Pins { int8_t busy=0; };

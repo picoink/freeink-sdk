@@ -15,12 +15,16 @@
 #include "PanelDriver.h"
 
 #if FREEINK_DRIVER_EPDIY
+#include <atomic>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 namespace freeink {
 
 class EpdiyDriver : public PanelDriver {
  public:
   explicit EpdiyDriver(const EpdiyConfig& cfg);
+  ~EpdiyDriver() override;
 
   const char* controllerName() const override { return "EPDiy"; }
   uint32_t spiHz() const override { return 0; }  // EPDiy owns the LCD bus
@@ -31,6 +35,16 @@ class EpdiyDriver : public PanelDriver {
   void begin(EpdBus& bus) override;
   void deepSleep(EpdBus& bus) override;
   void display(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, RefreshMode mode, bool turnOff) override;
+
+  bool supportsGray8() const override { return true; }
+  bool displayGray8Start(EpdBus&, const uint8_t*, uint16_t, RefreshMode) override;
+  bool supportsAsyncDisplay() const override { return _worker != nullptr; }
+  bool refreshBusy(EpdBus&) const override { return _working.load(); }
+  RefreshMetrics lastRefreshMetrics() const override;
+  void requestResync(uint8_t = 0) override { if (!_working.load()) _faulted=false; }
+  bool lastRefreshSucceeded() const override { return _success.load(); }
+  bool displayStart(EpdBus&, const uint8_t*, const uint8_t*, RefreshMode, bool) override;
+  void displayFinish(EpdBus&, const uint8_t*) override;
 
   // Overlay masks onto the B/W base the host displays first: LSB = dark gray,
   // MSB-only = light gray. Whole planes or strips.
@@ -46,11 +60,20 @@ class EpdiyDriver : public PanelDriver {
 
  private:
   bool update(enum EpdDrawMode mode, bool full);
+  void prepare(const uint8_t* fb, RefreshMode mode);
+  static void runWorker(void* context);
+  void stopWorker();
+  TaskHandle_t _worker = nullptr;
+  std::atomic<bool> _working{false}, _stop{false}, _exited{true}, _success{true};
+  RefreshMetrics _metrics{};
+  uint32_t _queuedAt=0, _finishedAt=0;
+  bool _jobFull = false;
   int temperature() const;
 
   const EpdiyConfig& _cfg;
   EpdiyHighlevelState _hl{};
   bool _ready = false;
+  bool _faulted = false;
   bool _panelKnown = false;  // false until a clear has put the glass in a known state
   uint8_t* _lsb = nullptr;
   uint8_t* _msb = nullptr;

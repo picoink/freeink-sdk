@@ -891,6 +891,7 @@ public:
   }
 
   void invalidate(RefreshHint hint = RefreshHint::Fast) {
+    presentationFailures_ = 0;
     invalidated_ = true;
     if (static_cast<uint8_t>(hint) > static_cast<uint8_t>(refreshHint_))
       refreshHint_ = hint;
@@ -923,7 +924,52 @@ public:
   bool handlerOverflowed() const { return handlerOverflowed_; }
   ActionEvent lastEvent() const { return lastEvent_; }
 
+  // Opt in to publishing hit regions only after a successful panel update.
+  // One composed frame may be pending; callers must settle it before repaint.
+  ActionEvent renderDeferred() {
+    deferredPresentation_ = true;
+    if (presentationPending_) return {};
+    return render();
+  }
+  bool presentationPending() const { return presentationPending_; }
+  bool inputReady() const {
+    return !deferredPresentation_ || (!presentationPending_ && !invalidated_ && !presentationFailed_);
+  }
+  uint32_t cancelledInputs() const { return cancelledInputs_; }
+  void cancelInput() { ++cancelledInputs_; }
+  void recoverPresentation() {
+    if (presentationFailed_ && !presentationPending_)
+      invalidate(RefreshHint::Fast);
+  }
+  void deferPresentation() {
+    if (!presentationPending_) return;
+    presentationPending_ = false;
+    invalidated_ = true;
+    if (static_cast<uint8_t>(lastRenderHint_) > static_cast<uint8_t>(refreshHint_))
+      refreshHint_ = lastRenderHint_;
+  }
+  void finishPresentation(bool success) {
+    if (!presentationPending_) return;
+    presentationPending_ = false;
+    presentationFailed_ = !success;
+    if (success) {
+      presentationFailures_ = 0;
+      publishInteractions();
+#ifdef FREEINK_HOST
+      freeink::host::commitHitRegions();
+#endif
+    }
+    else if (++presentationFailures_ < 2) {
+      // One automatic recovery, then wait for an explicit invalidation/input.
+      // Repeated hardware failure must never become a continuous flash loop.
+      invalidated_ = true;
+      if (static_cast<uint8_t>(lastRenderHint_) > static_cast<uint8_t>(refreshHint_))
+        refreshHint_ = lastRenderHint_;
+    }
+  }
+
   ActionEvent render(const InputSnapshot &input = InputSnapshot{}) {
+    if (presentationPending_) return {};
 #ifdef FREEINK_HOST
     freeink::host::beginFrame();
     freeink::host::runtime().orientation = static_cast<int>(device_.orientation);
@@ -953,14 +999,8 @@ public:
     if (screen_)
       screen_(screen, screenUser_);
     lastEvent_ = frame.finish();
-    interactions_.publish();
-#ifdef FREEINK_HOST
-    for (size_t i = 0; i < interactions_.publishedCount(); ++i) {
-      const auto& h = interactions_.publishedData()[i];
-      freeink::host::hitPublished(h.rect.x, h.rect.y, h.rect.width, h.rect.height,
-                                h.action, h.value, h.state);
-    }
-#endif
+    if (deferredPresentation_) presentationPending_ = true;
+    else publishInteractions();
     if (lastEvent_) {
       dispatch(lastEvent_);
       invalidate(RefreshHint::Fast);
@@ -986,6 +1026,7 @@ public:
   // remaining queued taps route against the old screen — same as taps landing
   // just before a transition).
   ActionEvent route(const InputSnapshot &input) {
+    if (!inputReady()) { ++cancelledInputs_; return {}; }
     // Reads the last-published table (see render()'s beginPublishCycle()/
     // publish()), never one a concurrent render is mid-rebuilding.
     lastEvent_ = interactions_.routePublished(input);
@@ -1001,6 +1042,17 @@ public:
       }
     }
     return lastEvent_;
+  }
+
+  // Opt-in routing for controls whose identity and geometry survive a pending
+  // presentation (e.g. root tabs). The caller owns scope/timestamp validation
+  // and invalidation; ordinary controls must continue using route().
+  ActionEvent routePersistent(const InputSnapshot& input,ActionId action) {
+    if (!input.touchReleased || device_.orientation!=publishedOrientation_) return {};
+    Interaction hit{};
+    if (!interactions_.hitPublished(input.touchX,input.touchY,action,hit)) return {};
+    ActionEvent event{}; event.action=hit.action; event.value=hit.value;
+    clearTapFlash(); dispatch(event); lastEvent_=event; return event;
   }
 
   // True while a held touch sits on an interactive element (the routing marks
@@ -1023,6 +1075,17 @@ public:
   }
 
 private:
+  void publishInteractions() {
+    interactions_.publish();
+    publishedOrientation_=device_.orientation;
+#ifdef FREEINK_HOST
+    for (size_t i = 0; i < interactions_.publishedCount(); ++i) {
+      const auto& h = interactions_.publishedData()[i];
+      freeink::host::hitPublished(h.rect.x, h.rect.y, h.rect.width, h.rect.height,
+                                h.action, h.value, h.state);
+    }
+#endif
+  }
   struct Handler {
     ActionId action = NO_ACTION;
     ActionHandler handler = nullptr;
@@ -1039,6 +1102,7 @@ private:
 
   DrawTarget &target_;
   DeviceContext device_{};
+  Orientation publishedOrientation_=Orientation::Portrait;
   // Theme storage: caller-owned shared tokens (setThemeRef) or an app-owned
   // heap copy (setTheme / the constructor's font-derived default). A pointer
   // pair instead of an inline ThemeTokens member keeps sizeof(FreeInkApp)
@@ -1053,6 +1117,10 @@ private:
   size_t handlerCount_ = 0;
   bool handlerOverflowed_ = false;
   bool invalidated_ = true;
+  bool deferredPresentation_ = false, presentationPending_ = false;
+  bool presentationFailed_ = false;
+  uint8_t presentationFailures_ = 0;
+  uint32_t cancelledInputs_ = 0;
   RefreshHint refreshHint_ = RefreshHint::Full;
   RefreshHint lastRenderHint_ = RefreshHint::None;
   ActionEvent lastEvent_{};

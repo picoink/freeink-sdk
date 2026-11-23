@@ -69,8 +69,8 @@ void boardInit(uint32_t epdRowWidth) {
 
   const EpdDisplay_t* display = epd_get_display();
   LcdEpdConfig_t config = {};
-  // Pixel clock. The vendor runs the panel's 20 MHz; 16 MHz on this build while line underruns are investigated.
-  config.pixel_clock = 16u * 1000 * 1000;
+  // Native panel clock; the LCD pipeline uses matching fractional CKV timing.
+  config.pixel_clock = 20u * 1000 * 1000;
   (void)display->bus_speed;
   config.ckv_high_time = 60;
   config.line_front_porch = 4;
@@ -215,7 +215,8 @@ const EpdBoardDefinition kBoard = {
 const EpdiyConfig& metalioEInk4PlusEpdiyConfig() {
   static EpdiyConfig config = [] {
     my_waveform_init();  // must precede epd_hl_init()
-    return EpdiyConfig{&kBoard, &E0470A14_AF, &MY_WAVEFORM, EPD_LUT_1K, 1200, 25};
+    return EpdiyConfig{&kBoard, &E0470A14_AF, my_waveform_fast(), EPD_LUT_1K, 1200, 25, true,
+                      my_waveform_wipe_gl(0), MODE_GL16};
   }();
   return config;
 }

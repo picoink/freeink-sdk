@@ -243,6 +243,50 @@ void testCenteredDigitInk() {
   }
 }
 
+void testRuntimeFontFallback() {
+  struct Source : RuntimeGlyphSource {
+    uint32_t codepoint; int16_t width; uint8_t pixels[1]{255};
+    int glyphCalls = 0, advanceCalls = 0;
+    Source(uint32_t cp, int16_t advance) : codepoint(cp), width(advance) {}
+    bool glyph(uint32_t cp, uint16_t size, Glyph* out) override {
+      ++glyphCalls;
+      if (cp != codepoint) return false;
+      *out = {pixels,1,1,0,int16_t(-int16_t(size)),width}; return true;
+    }
+    int16_t advance(uint32_t cp, uint16_t) override {
+      ++advanceCalls; return cp == codepoint ? width : 0;
+    }
+  } latin('A',12), chinese(0x4e2d,24);
+  FallbackGlyphSource chain(latin,chinese);
+  RuntimeGlyphSource::Glyph glyph{};
+  CHECK(chain.glyph('A',24,&glyph)); CHECK(glyph.coverage == latin.pixels);
+  CHECK_EQ(chain.advance('A',24),12); CHECK_EQ(chinese.glyphCalls,0);
+  CHECK_EQ(chinese.advanceCalls,0);
+  CHECK(chain.glyph(0x4e2d,24,&glyph)); CHECK(glyph.coverage == chinese.pixels);
+  CHECK_EQ(chain.advance(0x4e2d,24),24);
+  CHECK(!chain.glyph(0x2603,24,&glyph)); CHECK_EQ(chain.advance(0x2603,24),0);
+  Source combining(0x0301,0), duplicate(0x0301,9);
+  FallbackGlyphSource marks(combining,duplicate);
+  CHECK_EQ(marks.advance(0x0301,24),0); CHECK_EQ(duplicate.advanceCalls,0);
+}
+
+void testDisplayTargetGray8() {
+  uint8_t fb[32*16]; memset(fb,255,sizeof(fb));
+  DisplayTarget target(fb,32,16,32,Orientation::LandscapeCounterClockwise,true);
+  target.fill({0,0,8,8},Paint::solid(Color::DarkGray));
+  for (int y=0;y<8;++y) for (int x=0;x<8;++x) CHECK_EQ(fb[y*32+x],64);
+  static constexpr uint8_t pixels[] = {0x08,0xF8};
+  static constexpr FontGlyph glyphs[] = {{0,4,1,5,0,-1}};
+  static constexpr BitmapFont font{pixels,glyphs,'A','A',2,1,4,1,4};
+  target.setFont(font); target.text({8,0,16,8},"A",{});
+  unsigned half = 0, black = 0;
+  for (uint8_t value : fb) { half += value == 119; black += value == 0; }
+  CHECK_EQ(half,2u); CHECK_EQ(black,1u);
+  target.setOrientation(Orientation::Portrait);
+  target.fill({0,0,1,1},Paint::solid(Color::LightGray));
+  CHECK_EQ(fb[15*32],192);
+}
+
 void testDisplayTargetAlphaFont() {
   constexpr int16_t W = 32, H = 16, WB = W / 8;
   uint8_t fb[WB * H];
@@ -5266,6 +5310,77 @@ void testFreeInkAppDispatchesScreenActions() {
   CHECK(app.refreshHint() == RefreshHint::Fast);
 }
 
+void testDeferredPresentation() {
+  FakeDrawTarget draw;
+  DeviceContext device{200, 120};
+  AppTestState state;
+  FreeInkApp<8, 4> app(draw, device);
+  app.setScreen(appTestScreen, &state);
+  app.on(ActionBack, appTestHandler, &state);
+  InputSnapshot tap; tap.touchReleased = true; tap.touchX = 150; tap.touchY = 100;
+  app.renderDeferred();
+  CHECK(app.presentationPending());
+  CHECK(!app.route(tap));
+  CHECK_EQ(state.handled, 0);
+  app.finishPresentation(false);
+  CHECK(app.invalidated());
+  CHECK(app.refreshHint() == RefreshHint::Full);
+  CHECK(!app.route(tap));
+  app.renderDeferred();
+  app.finishPresentation(true);
+  CHECK(app.inputReady());
+  CHECK(app.route(tap));
+  CHECK_EQ(state.handled, 1);
+  // A second queued tap cannot activate controls against already changed state.
+  CHECK(!app.route(tap));
+  CHECK_EQ(state.handled, 1);
+  CHECK_EQ(app.cancelledInputs(), 3u);
+  app.renderDeferred(); app.finishPresentation(false);
+  CHECK(app.invalidated());
+  app.renderDeferred(); app.finishPresentation(false);
+  CHECK(!app.invalidated() && !app.inputReady());
+  CHECK(!app.route(tap));
+  app.invalidate(); app.renderDeferred(); app.finishPresentation(true);
+  CHECK(app.inputReady());
+  app.renderDeferred();
+  // Navigation during an in-flight frame must still repaint after completion.
+  app.setScreen(appTestScreen, &state);
+  app.finishPresentation(true);
+  CHECK(app.invalidated() && !app.inputReady());
+  app.renderDeferred(); app.finishPresentation(true);
+  CHECK(app.inputReady());
+}
+
+void testPersistentNavigation() {
+  FakeDrawTarget draw; DeviceContext device{200,120}; AppTestState state;
+  FreeInkApp<8,4> app(draw,device); app.setScreen(appTestScreen,&state);
+  app.on(ActionBack,appTestHandler,&state);
+  InputSnapshot tap; tap.touchReleased=true; tap.touchX=150; tap.touchY=100;
+  app.renderDeferred();
+  CHECK(!app.routePersistent(tap,ActionBack));
+  app.finishPresentation(true);
+  app.invalidate(); app.renderDeferred();
+  CHECK(app.routePersistent(tap,ActionBack));
+  CHECK_EQ(state.handled,1);
+  CHECK(!app.route(tap));
+  CHECK(!app.routePersistent(tap,999));
+  device.orientation=Orientation::LandscapeClockwise; app.setDevice(device);
+  CHECK(!app.routePersistent(tap,ActionBack));
+  app.finishPresentation(false);
+  CHECK(app.invalidated());
+}
+
+void testGray2DisplayBitmap() {
+  uint8_t pixels[24]{}; uint8_t bits[]={0x1b};
+  DisplayTarget target(pixels,8,3,8,Orientation::LandscapeCounterClockwise,true);
+  target.bitmap({0,0,8,2},{bits,4,1,BitmapFormat::Gray2,false},BitmapMode::Stretch);
+  const uint8_t expected[]={0,0,64,64,192,192,255,255};
+  CHECK(std::memcmp(pixels,expected,8)==0); CHECK(std::memcmp(pixels+8,expected,8)==0);
+  target.setClipRect({2,2,4,1});
+  target.bitmap({0,2,8,1},{bits,4,1,BitmapFormat::Gray2,false},BitmapMode::Stretch);
+  CHECK_EQ(pixels[16],0); CHECK_EQ(pixels[18],64); CHECK_EQ(pixels[21],192); CHECK_EQ(pixels[23],0);
+}
+
 void noopHandler(const ActionEvent&, void*) {}
 
 void testFreeInkAppHandlerOverflowFlag() {
@@ -6052,6 +6167,8 @@ int main() {
   testRect();
   testDisplayTarget();
   testDisplayTargetAlphaFont();
+  testRuntimeFontFallback();
+  testDisplayTargetGray8();
   testCenteredDigitInk();
   testStackFillsExactly();
   testStackFlexRemainderWithTrailingFixed();
@@ -6158,6 +6275,9 @@ int main() {
   testPopupAutoSizeAndAlignment();
   testScreenAnchoredLayout();
   testFreeInkAppDispatchesScreenActions();
+  testDeferredPresentation();
+  testPersistentNavigation();
+  testGray2DisplayBitmap();
   testFreeInkAppHandlerOverflowFlag();
   testFreeInkAppSharedThemeRefFollowsAtomicSwap();
   testTextArea();

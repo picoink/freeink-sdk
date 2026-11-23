@@ -301,9 +301,9 @@ bool Rtc::cancelWakeTimer() {
   if (begun_ && BoardConfig::ACTIVE.sensors.rtcType == BoardConfig::RtcType::Pcf8563) {
     const uint8_t addr = BoardConfig::ACTIVE.sensors.rtcAddr;
     uint8_t timer = 0, ctrl = 0;
-    bool ok = readRegs(addr, 0x0E, &timer, 1) && writeReg(addr, 0x0E, timer & ~0x80);
+    bool ok = readRegs(addr, 0x0E, &timer, 1) && writeReg(addr, 0x0E, timer & 0x03);
     const bool disabled = readRegs(addr, 0x01, &ctrl, 1) &&
-        writeReg(addr, 0x01, (ctrl & ~0x05) | 0x08);  // TF W0C; preserve AF even if it arrives now.
+        writeReg(addr, 0x01, (ctrl & 0x12) | 0x08);  // TF W0C; preserve AF even if it arrives now; unused bits zero.
     return ok && disabled && readRegs(addr, 0x0E, &timer, 1) &&
         readRegs(addr, 0x01, &ctrl, 1) && !(timer & 0x80) && !(ctrl & 0x05);
   }
@@ -332,11 +332,12 @@ bool Rtc::armWakeTimer(const uint32_t seconds) {
     if (!cancelWakeTimer()) return false;
     const uint8_t clock = seconds > 255 ? 3 : 2;
     const uint8_t count = seconds > 255 ? (seconds + 59) / 60 : seconds;
-    const uint8_t control = (ctrl & ~0x15) | 0x09;  // level IRQ, TIE on, TF cleared, AF preserved
+    const uint8_t control = (ctrl & 0x02) | 0x09;  // level IRQ, TIE on, TF cleared, AF preserved; unused bits zero
     uint8_t back = 0;
     bool ok = writeReg(addr, 0x0E, clock) && writeReg(addr, 0x0F, count) &&
         readRegs(addr, 0x0F, &back, 1) && back == count && writeReg(addr, 0x01, control) &&
-        writeReg(addr, 0x0E, clock | 0x80) && readRegs(addr, 0x0E, &back, 1) && back == (clock | 0x80) &&
+        // Only TE and TD[1:0] are defined. Metalio reads unused bits high.
+        writeReg(addr, 0x0E, clock | 0x80) && readRegs(addr, 0x0E, &back, 1) && (back & 0x83) == (clock | 0x80) &&
         readRegs(addr, 0x01, &back, 1) && (back & 0x13) == 1;
     if (!ok) cancelWakeTimer();
     return ok;

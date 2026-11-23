@@ -335,6 +335,7 @@ enum class BitmapFormat : uint8_t {
   BW1,
   Gray2,
   NativeBmp,
+  Gray4, // Two luminance samples per byte, high nibble first; 0 black, 15 white.
 };
 
 enum class BitmapMode : uint8_t {
@@ -398,17 +399,19 @@ enum class Rotation : uint8_t {
 // relative to its screen); whole-display rotation happens in the renderer's
 // coordinate mapping and needs nothing from callers.
 template <typename Plot>
-inline void forEachBitmapPixel(const Rect rect, const BitmapRef &src,
+inline void forEachBitmapSample(const Rect rect, const BitmapRef &src,
                                const BitmapMode mode, Plot &&plot,
                                const Rotation rotation = Rotation::None) {
   if (!src || rect.empty())
     return;
-  const int bytesPerRow = (src.width + 7) / 8;
+  const int bytesPerRow = src.format==BitmapFormat::Gray4 ? (src.width+1)/2 : src.format==BitmapFormat::Gray2 ? (src.width+3)/4 : (src.width+7)/8;
   // Mask1 is the freeink::Icon convention (bit 1 = transparent, bit 0 = draw);
   // BW1 is set-bit-is-ink. Fold that polarity in here so both formats plot
   // their drawn pixels through the same sampling math.
   const bool maskInverted = src.format == BitmapFormat::Mask1;
   const auto srcInk = [&](const int sx, const int sy) {
+    if (src.format==BitmapFormat::Gray4) return uint8_t((src.data[sy*bytesPerRow+sx/2] >> (4-4*(sx%2)))&15);
+    if (src.format==BitmapFormat::Gray2) return uint8_t((src.data[sy*bytesPerRow+sx/4] >> (6-2*(sx%4)))&3);
     const uint8_t bit =
         (src.data[sy * bytesPerRow + sx / 8] >> (7 - (sx % 8))) & 0x01;
     return static_cast<uint8_t>(maskInverted ? (bit ^ 1) : bit);
@@ -450,10 +453,7 @@ inline void forEachBitmapPixel(const Rect rect, const BitmapRef &src,
               : (bitmap.height < rect.height ? bitmap.height : rect.height);
     for (int dy = 0; dy < spanY; ++dy) {
       for (int dx = 0; dx < spanX; ++dx) {
-        if (inkAt(dx % bitmap.width, dy % bitmap.height)) {
-          plot(static_cast<int16_t>(rect.x + dx),
-               static_cast<int16_t>(rect.y + dy));
-        }
+        plot(static_cast<int16_t>(rect.x+dx),static_cast<int16_t>(rect.y+dy),inkAt(dx%bitmap.width,dy%bitmap.height));
       }
     }
     return;
@@ -489,10 +489,14 @@ inline void forEachBitmapPixel(const Rect rect, const BitmapRef &src,
         continue;
       const int sx =
           static_cast<int>((static_cast<int32_t>(dx) * bitmap.width) / dstW);
-      if (inkAt(sx, sy))
-        plot(static_cast<int16_t>(px), static_cast<int16_t>(py));
+      plot(static_cast<int16_t>(px), static_cast<int16_t>(py),inkAt(sx,sy));
     }
   }
+}
+
+template <typename Plot>
+inline void forEachBitmapPixel(Rect rect,const BitmapRef& src,BitmapMode mode,Plot&& plot,Rotation rotation=Rotation::None) {
+  forEachBitmapSample(rect,src,mode,[&](int16_t x,int16_t y,uint8_t value) { if (value) plot(x,y); },rotation);
 }
 
 struct Paint {

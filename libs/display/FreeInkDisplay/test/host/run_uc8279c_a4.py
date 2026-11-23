@@ -16,8 +16,10 @@ with tempfile.TemporaryDirectory(prefix="uc8279c-a4-test-") as directory:
         shutil.copy2(SOURCE / "driver" / name, root / "driver" / name)
     shutil.copy2(SOURCE / "lut/Uc8279cA4Luts.h", root / "lut/Uc8279cA4Luts.h")
     shutil.copy2(SOURCE.parent / "include/GrayscaleCapabilities.h", root / "GrayscaleCapabilities.h")
+    shutil.copy2(SOURCE.parent / "include/RefreshMetrics.h", root / "RefreshMetrics.h")
     panel = root / "driver/PanelDriver.h"
     panel.write_text(panel.read_text().replace("../../include/GrayscaleCapabilities.h", "../GrayscaleCapabilities.h"))
+    panel.write_text(panel.read_text().replace("../../include/RefreshMetrics.h", "../RefreshMetrics.h"))
     (root / "Arduino.h").write_text('''#pragma once
 #include <cstdint>
 #include <cstddef>
@@ -70,6 +72,7 @@ public:
     cmd(c);
     (c==0x10 ? oldPlane : newPlane).assign(size_t(height)*widthBytes,value);
   }
+  bool isBusy() const { return false; }
   void waitBusy(const char*) {}
   struct Pins { int8_t rst=0; };
   Pins pins() const { return {}; }

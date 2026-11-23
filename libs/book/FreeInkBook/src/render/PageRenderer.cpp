@@ -210,7 +210,7 @@ uint32_t PageRenderer::renderText(const Page& page, FontChain& fonts, const Fram
 
 BookStatus PageRenderer::renderImages(const Page& page, BookSource& source,
                                       const ZipCatalog& zip, Arena& scratch,
-                                      const FrameTarget& target) {
+                                      const FrameTarget& target, ImageBackend* backend) {
   BookStatus worst = BookStatus::Ok;
   for (uint16_t m = 0; m < page.imageCount; ++m) {
     const PageImage& image = page.images[m];
@@ -225,7 +225,7 @@ BookStatus PageRenderer::renderImages(const Page& page, BookSource& source,
     memset(errNext, 0, (image.width + 2u) * sizeof(int16_t));
     ImageBlit blit{&target, image.x, image.y, err, errNext, image.width};
     const BookStatus status =
-        ImageRenderer::render(source, zip, image, scratch, ImageBlit::onRow, &blit);
+        ImageRenderer::render(source, zip, image, scratch, ImageBlit::onRow, &blit, backend);
     scratch.release(marked);
     // Unsupported formats leave their reserved space blank; real I/O errors
     // are reported (with the rest of the page still drawn).
@@ -236,9 +236,9 @@ BookStatus PageRenderer::renderImages(const Page& page, BookSource& source,
 
 BookStatus PageRenderer::render(const Page& page, FontChain& fonts, BookSource& source,
                                 const ZipCatalog& zip, Arena& scratch,
-                                const FrameTarget& target) {
+                                const FrameTarget& target, ImageBackend* backend) {
   renderText(page, fonts, target);
-  return renderImages(page, source, zip, scratch, target);
+  return renderImages(page, source, zip, scratch, target, backend);
 }
 
 }  // namespace book

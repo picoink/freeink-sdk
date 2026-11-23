@@ -308,11 +308,14 @@ bool InputManager::prepareForDeepSleep() {
   return true;
 }
 
-void InputManager::beginAsync(const uint8_t taskPriority, const uint32_t pollMs, const uint8_t queueLen) {
+void InputManager::beginAsync(const uint8_t taskPriority, const uint32_t pollMs, const uint8_t queueLen, const bool ordered) {
   if (_asyncTask) return;  // already running
   _asyncPollMs = pollMs ? pollMs : 1;
+  eventOverflow_ = 0; eventSequence_ = 0;
+  _asyncEventQueue = ordered ? xQueueCreate(queueLen, sizeof(freeink::OrderedInput)) : nullptr;
+  if (ordered && !_asyncEventQueue) return;
   _asyncQueue = xQueueCreate(queueLen, sizeof(uint8_t));
-  if (!_asyncQueue) return;
+  if (!_asyncQueue) { deleteAsyncQueues(); return; }
   _asyncKeyQueue = xQueueCreate(queueLen, sizeof(KeyEvent));
   _asyncKeyOverflow.store(false);
   _asyncTapQueue = xQueueCreate(queueLen, sizeof(float) * 2);
@@ -335,7 +338,7 @@ void InputManager::beginAsync(const uint8_t taskPriority, const uint32_t pollMs,
 }
 
 void InputManager::deleteAsyncQueues() {
-  for (auto* queue : {&_asyncQueue, &_asyncKeyQueue, &_asyncHomeQueue, &_asyncTapQueue, &_asyncSwipeQueue,
+  for (auto* queue : {&_asyncEventQueue, &_asyncQueue, &_asyncKeyQueue, &_asyncHomeQueue, &_asyncTapQueue, &_asyncSwipeQueue,
                      &_asyncMultiTouchSwipeQueue, &_asyncMultiTouchRotationQueue, &_asyncMultiTouchPinchQueue}) {
     if (*queue) vQueueDelete(*queue);
     *queue = nullptr;
@@ -359,6 +362,23 @@ bool InputManager::endAsync(uint32_t timeoutMs) {
   return true;
 }
 
+void InputManager::publishEvent(freeink::OrderedInput event) {
+  if (!_asyncEventQueue) return;
+  event.timestamp = millis(); event.sequence = ++eventSequence_;
+  if (xQueueSend(_asyncEventQueue, &event, 0) != pdTRUE) eventOverflow_.fetch_add(1);
+}
+bool InputManager::popEvent(freeink::OrderedInput& event) {
+  if (!_asyncEventQueue) return false;
+  if (const auto dropped = eventOverflow_.exchange(0)) {
+    uint32_t discarded = 0;
+    while (xQueueReceive(_asyncEventQueue, &event, 0) == pdTRUE) ++discarded;
+    event = {}; event.kind = freeink::OrderedInput::Reset;
+    event.timestamp = millis(); event.dropped = dropped + discarded;
+    return true;
+  }
+  return xQueueReceive(_asyncEventQueue, &event, 0) == pdTRUE;
+}
+
 bool InputManager::popHomeKey(bool& longPress) {
   return _asyncHomeQueue && xQueueReceive(_asyncHomeQueue, &longPress, 0) == pdTRUE;
 }
@@ -377,21 +397,25 @@ void InputManager::asyncPoll() {
     if (wasHomeKeyTapped() || wasHomeKeyLongPressed()) {
       const bool longPress = wasHomeKeyLongPressed();
       xQueueSend(_asyncHomeQueue, &longPress, 0);
+      freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Home; e.pressed = longPress; publishEvent(e);
     }
     for (const uint8_t b : kButtons) {
       if (wasPressed(b)) xQueueSend(_asyncQueue, &b, 0);
       if (wasPressed(b) || wasReleased(b)) {
         const KeyEvent event{uint32_t(millis()), b, wasPressed(b)};
         if (xQueueSend(_asyncKeyQueue, &event, 0) != pdTRUE) _asyncKeyOverflow.store(true);
+        freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Key; e.button = b; e.pressed = event.pressed; publishEvent(e);
       }
     }
     float tap[2];
     if (_asyncTapQueue && wasTouchTap(tap[0], tap[1])) {
       xQueueSend(_asyncTapQueue, tap, 0);
+      freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Tap; e.x = tap[0]; e.y = tap[1]; publishEvent(e);
     }
     float swipe[4];
     if (_asyncSwipeQueue && wasSwipe(swipe[0], swipe[1], swipe[2], swipe[3])) {
       xQueueSend(_asyncSwipeQueue, swipe, 0);
+      freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Swipe; e.x = swipe[0]; e.y = swipe[1]; e.x1 = swipe[2]; e.y1 = swipe[3]; publishEvent(e);
     }
     if (_asyncMultiTouchSwipeQueue && multiTouchSwipeEvent && !touchSuppressed) {
       const QueuedMultiTouchSwipe multiTouchSwipe = {multiTouchSwipeStartX,       multiTouchSwipeStartY,
@@ -1847,7 +1871,7 @@ void InputManager::pollCst816s(const unsigned long now) {
         touchHomeKeyEvent = true;
         touchHomeKeyDownAt = now;
         touchHomeKeyLongFired = false;
-      } else if (!touchHomeKeyLongFired && now - touchHomeKeyDownAt >= HOME_KEY_LONG_PRESS_MS) {
+      } else if (!touchHomeKeyLongFired && now - touchHomeKeyDownAt >= homeLongPressMs_) {
         touchHomeKeyLongEvent = true;
         touchHomeKeyLongFired = true;
       }
@@ -2210,7 +2234,7 @@ void InputManager::pollGslx680(const unsigned long now) {
       touchHomeKeyDown = true;
       touchHomeKeyLongFired = false;
       touchHomeKeyDownAt = now;
-    } else if (!touchHomeKeyLongFired && now - touchHomeKeyDownAt >= HOME_KEY_LONG_PRESS_MS) {
+    } else if (!touchHomeKeyLongFired && now - touchHomeKeyDownAt >= homeLongPressMs_) {
       touchHomeKeyLongEvent = true;
       touchHomeKeyLongFired = true;
     }
@@ -3046,7 +3070,7 @@ void InputManager::pollFt6336u(const unsigned long now) {
           touchHomeKeyEvent = true;
           touchHomeKeyDownAt = now;
           touchHomeKeyLongFired = false;
-        } else if (!touchHomeKeyLongFired && now - touchHomeKeyDownAt >= HOME_KEY_LONG_PRESS_MS) {
+        } else if (!touchHomeKeyLongFired && now - touchHomeKeyDownAt >= homeLongPressMs_) {
           touchHomeKeyLongEvent = true;
           touchHomeKeyLongFired = true;
         }
@@ -3127,7 +3151,7 @@ void InputManager::pollGt911(const unsigned long now) {
   // hold stops producing new-data frames (0x80 stays clear), so gating the hold
   // timer on fresh frames would never let it cross the threshold. The
   // press/release EDGES still come from fresh frames (handled after the gate).
-  if (touchHomeKeyDown && !touchHomeKeyLongFired && now - touchHomeKeyDownAt >= HOME_KEY_LONG_PRESS_MS) {
+  if (touchHomeKeyDown && !touchHomeKeyLongFired && now - touchHomeKeyDownAt >= homeLongPressMs_) {
     touchHomeKeyLongEvent = true;  // crossed the threshold (a hold shortcut)
     touchHomeKeyLongFired = true;  // once per hold; also suppresses the release tap
   }

@@ -9,7 +9,7 @@ trap 'rm -rf "$BUILD_DIR"' EXIT HUP INT TERM
 
 FONT_FIXTURE="$SDK_ROOT/libs/book/FreeInkBook/test/fixtures/fonts/DejaVuSans.ttf"
 INCLUDES="-I$FONT_ROOT/include -I$FONT_ROOT/third_party/freetype/include -I$FONT_ROOT/third_party/stb"
-SANITIZERS='-fsanitize=address,undefined -fno-omit-frame-pointer'
+SANITIZERS=${FREEINK_TEST_SANITIZERS:--fsanitize=address,undefined -fno-omit-frame-pointer}
 
 for source in "$FONT_ROOT"/src/freetype/*.c; do
   object="$BUILD_DIR/$(basename "$source" .c).o"

@@ -108,6 +108,15 @@ int main() {
     assert(rtc.readWakeTimer(fired) && fired);
     assert(rtc.cancelWakeTimer() && regs[0x32][1] == 8);
   }
+  // Actual Metalio PCF8563 reads unused bits high (0x40 / 0x54).
+  // They must neither fail verification nor be copied back into writes.
+  pcfUnusedReads = true;
+  for (const uint32_t seconds : {60U, 256U}) {
+    assert(rtc.armWakeTimer(seconds));
+    assert(rtc.readWakeTimer(fired) && !fired);
+    assert(rtc.cancelWakeTimer());
+  }
+  pcfUnusedReads = false;
   regs[0x32][2] = 0x80;
   assert(!rtc.armWakeTimer(60));
   regs[0x32][2] = 0;

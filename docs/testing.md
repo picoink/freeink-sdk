@@ -22,6 +22,7 @@ sh libs/book/FreeInkBook/test/host/run.sh
 sh libs/book/ContentProtection/test/host/run.sh
 sh libs/hardware/InputManager/test/host/run.sh
 sh libs/hardware/InputManager/test/host/run_metalio.sh
+sh libs/hardware/InputManager/test/host/run_async.sh
 sh libs/hardware/HapticManager/test/host/run.sh
 ```
 
@@ -51,6 +52,35 @@ Needs Pillow, `cjpeg` and `djpeg`. Decodes generated progressive JPEGs (4:2:0,
 with `djpeg -grayscale`; also checks that baseline files are refused and that
 a truncated stream decodes without failing. Set `PJ_EXTRA_JPEGS` to a
 colon-separated list of files to check real-world images too.
+
+## Persistent thumbnail JPEGs
+
+`ImageAccelerator::encodeGray` accepts bounded, MCU-aligned grayscale images.
+The S31 implementation serializes decoder/encoder transactions on the content worker
+and uses the official DMA allocation, synchronization and completion APIs. The
+desktop adapter uses libjpeg and never advertises hardware capability.
+
+The consumer `content_tasks` test checks aligned JPEG output, tiny-output failure
+and loading a cached image while its original book is unavailable. Its
+`reader_cover_cache` integration test checks persistent generation, warm disk
+hits without rewriting files, Home memory reuse and corrupt-cache regeneration.
+Run these and `image_quality`, the SDK host suites and the Metalio build before
+committing. Device acceptance must observe actual cache hits with JPEG hardware
+execution; successful host encoding is not hardware validation.
+The PicoInk S31 device run generated and validated six 160 x 240 Q90 cache
+JPEGs. Rebooted disk hits each executed the hardware decoder in 0.97–1.10 ms
+(21–24 ms complete cache tasks). The codec retains its early-created handles;
+the encoder's CPU-written header must not be invalidated with the DMA payload.
+
+The FreeInkUI Gray8 suite also compares runtime-glyph rendering with independent
+scalar golden frames in all four orientations, including every alpha value,
+negative bearings, clipping, padded rows, colors and overlapping text. Runtime
+glyphs now traverse physical rows after clipping once per glyph. Device timing
+is recorded separately by the PicoInk consumer; pixel equivalence alone does
+not establish a hardware speedup.
+Rounded-border straight spans also use batched fills; the corner and inner-radius
+predicates remain unchanged. The original scalar scene goldens cover the new
+path with clipping, corner masks, narrow rectangles and all four orientations.
 
 ## Battery gauge
 
@@ -127,6 +157,7 @@ and the actual controller settling time still require a device check.
 ```sh
 python3 libs/display/FreeInkDisplay/test/host/run_bus.py
 python3 libs/display/FreeInkDisplay/test/host/run_pro.py
+python3 libs/display/FreeInkDisplay/test/host/run_epdiy.py
 python3 libs/display/FreeInkDisplay/test/host/run_uc8279.py
 python3 libs/display/FreeInkDisplay/test/host/run_uc8279c_a4.py
 python3 libs/display/FreeInkDisplay/test/host/run_uc8253_power.py
@@ -141,6 +172,13 @@ SSD1677/SSD2677 drivers as a Picco and as a Sticky, including each board's
 bit-banged panel probe. The checks cover transfer
 sequences, grayscale uploads, refresh lifecycle, and power-state behavior for
 the drivers included in each harness.
+
+EPDiy additionally checks the optional board white-conditioning waveform: known
+full refreshes use it, ordinary grayscale updates restore the normal waveform,
+and a failed refresh still requires the original clear/recovery sequence. Metalio
+Plus reuses its existing full-quality 20-phase white erase plus 48-phase GL16
+reveal. The waveform suite checks every erase pulse stays neutral or drives
+toward white. This does not establish physical residual-image performance.
 
 For the board-profile and display-probe regression test, follow the
 [XteinkDetect host instructions](../libs/hardware/XteinkDetect/test/host/README.md).
@@ -206,6 +244,30 @@ standard suite also includes CX25601N setup, quantization, status, recharge and
 initialization fault injection. All of these complement, rather than replace,
 the consumer build and physical board checks.
 
+USB tests also compile the Metalio switch routing: failed starts and completed
+teardown restore the debug PHY, while in-flight storage callbacks keep ownership
+until drained. Re-entry ignores a stale TinyUSB configured flag until a fresh
+mount event or actual I/O. The SDMMC suite checks that an active card retains its
+DMA buffer when allocation is unavailable. Filesystem remount after MSC reuses
+that active card, with one cold retry if mounting fails.
+
+Physical PicoInk validation alternated internal FAT and TF exports twice without
+resetting. All four volumes mounted on the host, safely ejected, restored the
+debug connection and returned to Reader with SD available. The retained SD DMA
+buffer allowed remount even with a largest free DMA block of only 2,548 bytes.
+These observations are separate from host tests and the Metalio firmware build.
+
+The PCF8563 timer model also reproduces the Metalio's nonzero unused-bit reads:
+Control_status_2 bit 6 and Timer_control bits 6, 4 and 2 read high. Timer setup
+must verify only TE/TD, and writes must not copy unused bits. See the
+[PCF8563 register definitions](https://cache.nxp.com/docs/en/data-sheet/PCF8563.pdf),
+sections 8.3.2 and 8.8.1. The pre-fix implementation fails this regression.
+The RTC runner accepts `FREEINK_TEST_SANITIZERS=undefined` on hosts whose ASan
+runtime cannot initialize; record that explicitly rather than claiming an ASan
+pass. The PicoInk validation host used this override, as with its font tests.
+On the physical S31, the corrected 60-second timer produced `RTC timer wake
+detected` after 61.97 seconds; Reader, SD and cached covers recovered afterward.
+
 ## Application PSRAM and waveform storage
 
 The host resource suite (`host_resources` in PicoInk's stress simulator build)
@@ -251,3 +313,56 @@ validation, 2036 era rollover, DNS failure, timeouts, cancellation and stale res
 Both lifecycle suites enable undefined-behavior checks. PAN additionally accepts
 `SANITIZERS=address,undefined` when the host compiler/runtime supports it.
 Hardware pairing, DHCP, power and network access require a real device.
+
+The desktop `host_volumes` target also exercises the shared VolumeStorage
+facade: separate TF/internal contents, moves and handle accounting, exclusive
+reservation, remount without formatting, path validation and concurrent callers.
+The host internal directory models file ownership, not FAT/WL flash behavior.
+
+The USB MSC suite also compiles `FlashUsbStorage` against a deterministic
+wear-levelling backend. It covers native 4096-byte FAT sectors, partition/bounds
+validation, erase failures and remount persistence. These host checks do not
+replace real USB host enumeration, flash wear-levelling or cable-removal tests.
+
+## Packed 16-level bitmaps
+
+`BitmapFormat::Gray4` stores two pixels per byte, high nibble first, with 0
+black and 15 white. The Gray8 target expands each level to `level * 17`.
+The UI host suite checks all display/image rotations, odd widths, clipped and
+scaled rectangles, padded output rows, and every gray level against an
+independent scalar frame. This verifies pixel values, not optical panel levels.
+
+## S31 LCD pipeline and failure containment
+
+```sh
+python3 libs/display/epdiy/test/host/run.py
+python3 libs/display/FreeInkDisplay/test/host/run_epdiy.py
+```
+
+The pipeline suite compiles the production LUT, row queues, difference conversion
+and overlapped phase scheduler with a threaded fake LCD. It compares each emitted
+row with independent scalar waveform output over 684 rows, with either CPU owning
+the IRQ. Incomplete scans and missing completion interrupts must drain both feeders
+before queue/LUT reuse; subsequent cycles must recover without stale phases. UBSan
+also checks unaligned packed difference input, every width from 1 to 1216, and odd
+tails. The driver suite injects a failed scan and verifies that automatic retries
+cannot clear or scan the panel again until an explicit resync.
+
+The S31 scheduler preloads 125 rows per 127-slot queue. The CPU servicing the
+LCD/DMA interrupts prepares 7 of every 16 rows, and the other CPU prepares 9;
+neither feeder loses its prefill reserve. The next phase can prepare once both
+feeders finish, while the LCD consumes the current tail. LCD and DMA interrupts
+share a CPU and cancellation waits for their old callbacks before recycling data.
+Other LCD targets retain alternating ownership. EPDiy exposes separate power,
+preparation, waveform-cycle, actual scanning and completion timings through
+`RefreshMetrics`; the API contains no ESP-IDF types.
+
+FreeInkUI caps automatic retries after two failed presentations. A temporarily
+busy surface uses `deferPresentation()` and does not consume that failure budget.
+Input regions remain unpublished until presentation succeeds. Real device timing,
+underruns, modal appearance and optical gray levels must be validated separately;
+the PicoInk consumer records those results in its responsiveness validation log.
+After a successful explicit resync, `recoverPresentation()` requests a fresh app
+frame before reopening input. The PicoInk surface test distinguishes a new
+successful presentation timestamp from stale success or another failed attempt,
+including an intervening status read.

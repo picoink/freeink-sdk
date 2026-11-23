@@ -8,6 +8,7 @@
 #include FT_TRUETYPE_TABLES_H
 
 #include <algorithm>
+#include <atomic>
 #include <climits>
 #include <cstring>
 
@@ -36,8 +37,8 @@ void* fontRealloc(void* block, const size_t oldSize, const size_t newSize) {
 }
 
 // FreeType memory hooks use either the caller's bounded allocator or the
-// platform's PSRAM-preferring default. The shared library is initialized only
-// once, so configureMemory() deliberately freezes this choice before first use.
+// platform's PSRAM-preferring default. configureMemory() freezes this choice
+// before any face or worker starts using it.
 void* ftAlloc(FT_Memory, long size) { return size > 0 ? fontAlloc(static_cast<size_t>(size)) : nullptr; }
 void ftFree(FT_Memory, void* block) { fontFree(block); }
 void* ftRealloc(FT_Memory, long currentSize, long newSize, void* block) {
@@ -45,24 +46,26 @@ void* ftRealloc(FT_Memory, long currentSize, long newSize, void* block) {
   return fontRealloc(block, static_cast<size_t>(currentSize), static_cast<size_t>(newSize));
 }
 
-// One shared FreeType library for all faces; the library object itself is tiny.
-FT_Library g_lib = nullptr;
-FT_MemoryRec_ g_ftMemory{};
-bool ensureLib(FT_Error* error = nullptr) {
-  if (g_lib) {
-    if (error) *error = 0;
-    return true;
-  }
-  g_ftMemory.user = nullptr;
-  g_ftMemory.alloc = &ftAlloc;
-  g_ftMemory.free = &ftFree;
-  g_ftMemory.realloc = &ftRealloc;
-  const FT_Error initError = FT_New_Library(&g_ftMemory, &g_lib);
-  if (error) *error = initError;
-  if (initError != 0) return false;
-  FT_Add_Default_Modules(g_lib);  // register the sfnt/truetype/smooth/... modules
+// Each face owns a library: UI and content workers never share FreeType's
+// mutable module properties or allocation bookkeeping. Allocator policy freezes
+// on first use and must be configured before starting any font workers.
+std::atomic<bool> g_memoryFrozen{false};
+FT_MemoryRec_ g_ftMemory{nullptr, &ftAlloc, &ftFree, &ftRealloc};
+bool createLibrary(void*& storage, FT_Error* error = nullptr) {
+  if (storage) { if (error) *error = 0; return true; }
+  FT_Library library = nullptr;
+  const FT_Error status = FT_New_Library(&g_ftMemory, &library);
+  if (error) *error = status;
+  if (status) return false;
+  g_memoryFrozen.store(true);
+  FT_Add_Default_Modules(library);
+  storage = library;
   return true;
 }
+struct InspectionLibrary {
+  void* storage = nullptr;
+  ~InspectionLibrary() { if (storage) FT_Done_Library(static_cast<FT_Library>(storage)); }
+};
 constexpr uint32_t kTagWght = FT_MAKE_TAG('w', 'g', 'h', 't');
 constexpr uint32_t kTagItal = FT_MAKE_TAG('i', 't', 'a', 'l');
 constexpr uint32_t kTagSlnt = FT_MAKE_TAG('s', 'l', 'n', 't');
@@ -236,7 +239,7 @@ int32_t fixed16_16To26_6(const long value) {
 }  // namespace
 
 bool FtFont::configureMemory(const MemoryCallbacks* callbacks) {
-  if (g_lib) return false;
+  if (g_memoryFrozen.load()) return false;
   if (!callbacks) {
     g_memoryCallbacks = MemoryCallbacks{};
     return true;
@@ -252,10 +255,11 @@ FtFont::InspectResult FtFont::inspectMemory(const uint8_t* data, const uint32_t 
   if (familyCapacity && !family) return InspectResult::Unsupported;
   if (familyCapacity) family[0] = '\0';
   if (!data || !length) return InspectResult::Unsupported;
-  if (!ensureLib()) return InspectResult::Unavailable;
+  InspectionLibrary library;
+  if (!createLibrary(library.storage)) return InspectResult::Unavailable;
 
   FT_Face face = nullptr;
-  const FT_Error error = FT_New_Memory_Face(g_lib, data, static_cast<FT_Long>(length), 0, &face);
+  const FT_Error error = FT_New_Memory_Face(static_cast<FT_Library>(library.storage), data, static_cast<FT_Long>(length), 0, &face);
   if (error) return error == FT_Err_Out_Of_Memory ? InspectResult::Unavailable : InspectResult::Unsupported;
   const bool valid = supportedFace(face);
   if (valid) describeFace(face, info, family, familyCapacity);
@@ -269,7 +273,8 @@ FtFont::InspectResult FtFont::inspectStream(const ReadFn read, void* ctx, const 
   if (familyCapacity && !family) return InspectResult::Unsupported;
   if (familyCapacity) family[0] = '\0';
   if (!read || !fileSize) return InspectResult::Unsupported;
-  if (!ensureLib()) return InspectResult::Unavailable;
+  InspectionLibrary library;
+  if (!createLibrary(library.storage)) return InspectResult::Unavailable;
 
   StreamCtx source{read, ctx, false};
   FT_StreamRec stream{};
@@ -281,7 +286,7 @@ FtFont::InspectResult FtFont::inspectStream(const ReadFn read, void* ctx, const 
   args.flags = FT_OPEN_STREAM;
   args.stream = &stream;
   FT_Face face = nullptr;
-  const FT_Error error = FT_Open_Face(g_lib, &args, 0, &face);
+  const FT_Error error = FT_Open_Face(static_cast<FT_Library>(library.storage), &args, 0, &face);
   if (error) {
     return source.failed || error == FT_Err_Out_Of_Memory ? InspectResult::Unavailable : InspectResult::Unsupported;
   }
@@ -298,6 +303,7 @@ void FtFont::deinit() {
     FT_Done_Face(static_cast<FT_Face>(face_));
     face_ = nullptr;
   }
+  if (library_) { FT_Done_Library(static_cast<FT_Library>(library_)); library_ = nullptr; }
   fontFree(stream_);
   stream_ = nullptr;
   fontFree(streamCtx_);
@@ -369,7 +375,7 @@ bool FtFont::init(const uint8_t* data, const uint32_t len, const uint16_t sizePx
   // without ever calling FT_Done_Face on it.
   deinit();
   FT_Error libraryError = 0;
-  if (!ensureLib(&libraryError)) {
+  if (!createLibrary(library_, &libraryError)) {
     lastInitFailure_ = InitFailure::Library;
     lastInitError_ = libraryError;
     return false;
@@ -381,7 +387,7 @@ bool FtFont::init(const uint8_t* data, const uint32_t len, const uint16_t sizePx
   fontData_ = data;
   fontDataSize_ = len;
   FT_Face face = nullptr;
-  const FT_Error error = FT_New_Memory_Face(g_lib, data, static_cast<FT_Long>(len), 0, &face);
+  const FT_Error error = FT_New_Memory_Face(static_cast<FT_Library>(library_), data, static_cast<FT_Long>(len), 0, &face);
   if (error != 0) {
     lastInitFailure_ = InitFailure::OpenFace;
     lastInitError_ = error;
@@ -397,7 +403,7 @@ bool FtFont::initStream(const ReadFn read, void* ctx, const unsigned long fileSi
                         const int weight, const bool italic) {
   deinit();  // see the comment in init() — same reasoning applies here
   FT_Error libraryError = 0;
-  if (!ensureLib(&libraryError)) {
+  if (!createLibrary(library_, &libraryError)) {
     lastInitFailure_ = InitFailure::Library;
     lastInitError_ = libraryError;
     return false;
@@ -432,7 +438,7 @@ bool FtFont::initStream(const ReadFn read, void* ctx, const unsigned long fileSi
   args.flags = FT_OPEN_STREAM;
   args.stream = stream;
   FT_Face face = nullptr;
-  const FT_Error error = FT_Open_Face(g_lib, &args, 0, &face);
+  const FT_Error error = FT_Open_Face(static_cast<FT_Library>(library_), &args, 0, &face);
   if (error != 0) {
     lastInitFailure_ = InitFailure::OpenFace;
     lastInitError_ = error;
@@ -496,7 +502,7 @@ void FtFont::applyVariation(const int weight, const bool italic) {
       }
     }
     FT_Set_Var_Design_Coordinates(face, n, coords);
-    FT_Done_MM_Var(g_lib, mm);
+    FT_Done_MM_Var(static_cast<FT_Library>(library_), mm);
     obliqueShear_ = italic && !haveItalAxis;
     emboldenBold_ = wantBold && !haveWghtAxis;  // variable but no wght axis
   }
@@ -522,26 +528,17 @@ bool FtFont::setRenderOptions(const RenderOptions& options) {
   return supported;
 }
 
-// Both FT_Property_Set targets live on the shared library, not this face —
-// FT_Property_Set has no per-face scope. Applying them here, immediately
-// before THIS face's own FT_Load_Char (not once back in setRenderOptions()),
-// is what actually prevents cross-face leakage: setting them eagerly at
-// setRenderOptions() time meant "whichever face configured itself most
-// recently" won for every OTHER face's subsequent renders too, since
-// FT_Load_Char merely consumes whatever the properties currently say rather
-// than re-deriving them from this instance's own options_. Re-pinning them
-// right before the one call that consumes them means only the face actually
-// rendering right now can be the one that matters, for that one load.
+// Module settings belong to this face's private library.
 void FtFont::applyGlobalProperties() const {
-  if (!ensureLib()) return;
+  if (!library_) return;
   FT_Bool noStemDarkening = options_.stemDarkening ? 0 : 1;
-  FT_Property_Set(g_lib, "autofitter", "no-stem-darkening", &noStemDarkening);
+  FT_Property_Set(static_cast<FT_Library>(library_), "autofitter", "no-stem-darkening", &noStemDarkening);
 #if FREEINK_FONT_ENABLE_NATIVE_HINTING
   // The TrueType interpreter version is library-global. Restore it before
   // every load so a face rendered with Native v35 cannot affect a later
   // Default/Auto/None face (Default uses FreeType's normal v40 behavior).
   const FT_UInt version = options_.hinting == HintingMode::Native ? options_.interpreterVersion : 40;
-  FT_Property_Set(g_lib, "truetype", "interpreter-version", &version);
+  FT_Property_Set(static_cast<FT_Library>(library_), "truetype", "interpreter-version", &version);
 #endif
 }
 

@@ -237,6 +237,7 @@ class FtFont : public RasterFont {
   const uint8_t* expandMonoCoverage(const void* ftBitmap);
   void freeMonoBuffer();
 
+  void* library_ = nullptr;  // Owned FreeType context; never shared across faces.
   FtFaceHandle face_ = nullptr;
   void* stream_ = nullptr;     // FT_StreamRec* for the streamed path (owned)
   void* streamCtx_ = nullptr;  // {ReadFn, ctx} for the streamed path (owned)

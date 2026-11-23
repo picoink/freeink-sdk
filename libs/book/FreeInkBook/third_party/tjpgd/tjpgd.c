@@ -850,7 +850,7 @@ static JRESULT mcu_output (
 					if (mx == 16) {					/* Double block width? */
 						if (ix == 8) py += 64 - 8;	/* Jump to next block if double block height */
 					}
-					*pix++ = (uint8_t)*py++;			/* Get and store a Y value as grayscale */
+					*pix++ = BYTECLIP(*py++);			/* Get and store a Y value as grayscale */
 				}
 			}
 		}
@@ -906,7 +906,7 @@ static JRESULT mcu_output (
 					*pix++ = /*G*/ BYTECLIP(yy - ((int)(0.344 * CVACC) * cb + (int)(0.714 * CVACC) * cr) / CVACC);
 					*pix++ = /*B*/ BYTECLIP(yy + ((int)(1.772 * CVACC) * cb / CVACC));
 				} else {
-					*pix++ = yy;
+					*pix++ = BYTECLIP(yy);
 				}
 			}
 		}

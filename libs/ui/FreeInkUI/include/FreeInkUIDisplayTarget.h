@@ -33,6 +33,8 @@
 
 #include <FreeInkUI.h>
 #include <FreeInkUIFont.h>
+#include <cstring>
+#include <algorithm>
 
 namespace freeink {
 namespace ui {
@@ -58,6 +60,25 @@ class RuntimeGlyphSource {
   virtual int16_t advance(uint32_t codepoint, uint16_t pixelSize) = 0;
 };
 
+class FallbackGlyphSource final : public RuntimeGlyphSource {
+ public:
+  FallbackGlyphSource(RuntimeGlyphSource& primary, RuntimeGlyphSource& fallback)
+      : primary_(primary), fallback_(fallback) {}
+  bool glyph(uint32_t cp,uint16_t size,Glyph* out) override {
+    return primary_.glyph(cp,size,out) || fallback_.glyph(cp,size,out);
+  }
+  int16_t advance(uint32_t cp,uint16_t size) override {
+    const auto n = primary_.advance(cp,size);
+    if (n != 0) return n;
+    Glyph found{};
+    // Combining marks can legitimately have zero advance.
+    return primary_.glyph(cp,size,&found) ? 0 : fallback_.advance(cp,size);
+  }
+ private:
+  RuntimeGlyphSource& primary_;
+  RuntimeGlyphSource& fallback_;
+};
+
 class DisplayTarget final : public DrawTarget {
  public:
   // Logical font slots. ThemeTokens.fontSmall/Body/Title are just FontId values
@@ -68,10 +89,12 @@ class DisplayTarget final : public DrawTarget {
   bool setClipRect(Rect rect) override { clip_ = rect; return true; }
 
 
-  // Panel-native dimensions + explicit logical orientation.
+  // Panel-native dimensions + explicit logical orientation. The optional
+  // Gray8 target uses one byte per pixel and blends glyph coverage with the
+  // existing background. The default 1-bit output remains unchanged.
   DisplayTarget(uint8_t* framebuffer, int16_t panelWidth, int16_t panelHeight, int16_t panelWidthBytes,
-                Orientation orientation)
-      : fb_(framebuffer),
+                Orientation orientation, bool gray8 = false)
+      : gray8_(gray8), fb_(framebuffer),
         pw_(panelWidth),
         ph_(panelHeight),
         pwb_(panelWidthBytes),
@@ -174,6 +197,18 @@ class DisplayTarget final : public DrawTarget {
       return;
     }
     if (paint.color == Color::Transparent) return;
+    if (gray8_) {
+      const int r = std::min<int>(radius,std::min(rect.width,rect.height)/2);
+      if (!r) { fillGrayRect(rect,paint.color); return; }
+      // Only the four corner squares require per-pixel shape tests.
+      fillGrayRect({int16_t(rect.x+r),rect.y,int16_t(rect.width-2*r),rect.height},paint.color);
+      fillGrayRect({rect.x,int16_t(rect.y+r),int16_t(r),int16_t(rect.height-2*r)},paint.color);
+      fillGrayRect({int16_t(rect.right()-r),int16_t(rect.y+r),int16_t(r),int16_t(rect.height-2*r)},paint.color);
+      for (int cy : {int(rect.y),int(rect.bottom()-r)}) for (int cx : {int(rect.x),int(rect.right()-r)})
+        for (int y=cy;y<cy+r;++y) for (int x=cx;x<cx+r;++x)
+          if (insideRounded(rect,r,corners,x,y)) plot(x,y,paint.color);
+      return;
+    }
     for (int16_t y = rect.y; y < rect.bottom(); ++y) {
       for (int16_t x = rect.x; x < rect.right(); ++x) {
         if (radius > 0 && !insideRounded(rect, radius, corners, x, y)) continue;
@@ -187,8 +222,26 @@ class DisplayTarget final : public DrawTarget {
     if (rect.empty() || width == 0 || paint.kind == PaintKind::None || paint.color == Color::Transparent) return;
     const Rect inner = rect.inset(Insets{static_cast<int16_t>(width), static_cast<int16_t>(width),
                                          static_cast<int16_t>(width), static_cast<int16_t>(width)});
+    const int edge = std::min<int>(width+radius,std::min(rect.width,rect.height));
+    if (gray8_ && rect.width>2*edge && rect.height>2*edge) {
+      // Straight border spans do not need rounded-shape tests. Keep the
+      // existing corner predicate, including its inner-radius semantics.
+      fillGrayRect({int16_t(rect.x+edge),rect.y,int16_t(rect.width-2*edge),width},paint.color);
+      fillGrayRect({int16_t(rect.x+edge),int16_t(rect.bottom()-width),int16_t(rect.width-2*edge),width},paint.color);
+      fillGrayRect({rect.x,int16_t(rect.y+edge),width,int16_t(rect.height-2*edge)},paint.color);
+      fillGrayRect({int16_t(rect.right()-width),int16_t(rect.y+edge),width,int16_t(rect.height-2*edge)},paint.color);
+      for (int cy : {int(rect.y),int(rect.bottom()-edge)}) for (int cx : {int(rect.x),int(rect.right()-edge)})
+        for (int y=cy;y<cy+edge;++y) for (int x=cx;x<cx+edge;++x)
+          if ((radius==0 || insideRounded(rect,radius,corners,x,y)) &&
+              !(radius==0 ? inner.contains(x,y) : insideRounded(inner,radius,corners,x,y)))
+            plot(x,y,paint.color);
+      return;
+    }
     for (int16_t y = rect.y; y < rect.bottom(); ++y) {
       for (int16_t x = rect.x; x < rect.right(); ++x) {
+        if (gray8_ && y>=rect.y+edge && y<rect.bottom()-edge && x>=rect.x+edge && x<rect.right()-edge) {
+          x=rect.right()-edge-1; continue;
+        }
         const bool onOuter = radius == 0 || insideRounded(rect, radius, corners, x, y);
         if (!onOuter) continue;
         const bool inHole = !inner.empty() && (radius == 0 ? inner.contains(x, y)
@@ -261,6 +314,21 @@ class DisplayTarget final : public DrawTarget {
               const Paint foreground = Paint::solid(Color::Black),
               const Rotation rotation = Rotation::None) override {
     if (!bitmap || rect.empty()) return;
+    if (bitmap.format==BitmapFormat::Gray4) {
+      if (gray8_ && mode==BitmapMode::Stretch && rotation==Rotation::None) {
+        stretchGray<4>(rect,bitmap); return;
+      }
+      forEachBitmapSample(rect,bitmap,mode,[&](int16_t x,int16_t y,uint8_t level) { plotGray(x,y,level*17); },rotation);
+      return;
+    }
+    if (bitmap.format==BitmapFormat::Gray2) {
+      if (gray8_ && mode==BitmapMode::Stretch && rotation==Rotation::None) {
+        stretchGray<2>(rect,bitmap); return;
+      }
+      const Color levels[]={Color::Black,Color::DarkGray,Color::LightGray,Color::White};
+      forEachBitmapSample(rect,bitmap,mode,[&](int16_t x,int16_t y,uint8_t level) { plot(x,y,levels[level]); },rotation);
+      return;
+    }
     // Both row-major, MSB-first; forEachBitmapPixel folds in the per-format
     // polarity (BW1 set-bit-is-ink, Mask1 the Icon convention: 0 = draw).
     if (bitmap.format != BitmapFormat::BW1 && bitmap.format != BitmapFormat::Mask1) return;
@@ -271,7 +339,112 @@ class DisplayTarget final : public DrawTarget {
   }
 
  private:
+  void grayGlyph(Rect rect, const uint8_t* coverage, Color color) {
+    if (!fb_ || !coverage || color==Color::Transparent) return;
+    const int left=std::max<int>({0,rect.x,clip_.x}), top=std::max<int>({0,rect.y,clip_.y});
+    const int right=std::min<int>({w_,rect.right(),clip_.right()});
+    const int bottom=std::min<int>({h_,rect.bottom(),clip_.bottom()});
+    if (right<=left || bottom<=top) return;
+    int px=left,py=top,lx=left,ly=top,columns=right-left,rows=bottom-top;
+    int columnStep=1,rowStep=rect.width;
+    switch (orientation_) {
+      case Orientation::Portrait:
+        px=top; py=ph_-right; lx=right-1; columnStep=rect.width; rowStep=-1; std::swap(columns,rows); break;
+      case Orientation::PortraitInverted:
+        px=pw_-bottom; py=left; ly=bottom-1; columnStep=-rect.width; rowStep=1; std::swap(columns,rows); break;
+      case Orientation::LandscapeClockwise:
+        px=pw_-right; py=ph_-bottom; lx=right-1; ly=bottom-1; columnStep=-1; rowStep=-rect.width; break;
+      default: break;
+    }
+    const int start=(ly-rect.y)*rect.width+lx-rect.x;
+    const uint32_t level=grayLevel(color);
+    // Rotate and clip once per glyph, then blend in physical row order so
+    // opaque strokes use contiguous stores without reading PSRAM back.
+    for (int row=0;row<rows;++row) {
+      const auto* source=coverage+start+row*rowStep;
+      auto* destination=fb_+size_t(py+row)*pwb_+px;
+      for (int column=0;column<columns;++column) {
+        const uint32_t alpha=source[column*columnStep];
+        if (alpha==255) destination[column]=level;
+        else if (alpha) destination[column]=(level*alpha+uint32_t(destination[column])*(255-alpha)+127)/255;
+      }
+    }
+  }
+  template<unsigned Bits> void stretchGray(Rect rect, const BitmapRef& bitmap) {
+    if (!fb_) return;
+    const int left=std::max<int>({0,rect.x,clip_.x}), top=std::max<int>({0,rect.y,clip_.y});
+    const int right=std::min<int>({w_,rect.right(),clip_.right()});
+    const int bottom=std::min<int>({h_,rect.bottom(),clip_.bottom()});
+    if (right<=left || bottom<=top) return;
+    const bool transposed=isPortrait(orientation_);
+    int px=left,py=top,width=right-left,height=bottom-top,lx=left,ly=top,step=1;
+    switch (orientation_) {
+      case Orientation::Portrait: px=top; py=ph_-right; lx=right-1; std::swap(width,height); break;
+      case Orientation::PortraitInverted: px=pw_-bottom; py=left; ly=bottom-1; step=-1; std::swap(width,height); break;
+      case Orientation::LandscapeClockwise: px=pw_-right; py=ph_-bottom; lx=right-1; ly=bottom-1; step=-1; break;
+      default: break;
+    }
+    const int sourceSize=transposed ? bitmap.height : bitmap.width;
+    const int destinationSize=transposed ? rect.height : rect.width;
+    const int start=((transposed ? ly-rect.y : lx-rect.x)*sourceSize);
+    const int increment=step*sourceSize;
+    const int quotient=increment>=0 ? increment/destinationSize : -((-increment+destinationSize-1)/destinationSize);
+    const int remainder=increment-quotient*destinationSize;
+    constexpr unsigned perByte=8/Bits, mask=(1u<<Bits)-1;
+    const int stride=(bitmap.width+perByte-1)/perByte;
+    const uint8_t levels[]={0,64,192,255};
+    // Traverse physical rows: contiguous PSRAM stores, no per-pixel rotation,
+    // clipping, division or read/modify/write of the destination.
+    for (int row=0;row<height;++row) {
+      const int sourceFixed=transposed ? (lx-rect.x)*bitmap.width/rect.width : (ly-rect.y)*bitmap.height/rect.height;
+      int source=start/destinationSize,error=start%destinationSize;
+      uint8_t* destination=fb_+size_t(py+row)*pwb_+px;
+      for (int column=0;column<width;++column) {
+        const int sx=transposed ? sourceFixed : source,sy=transposed ? source : sourceFixed;
+        const auto level=(bitmap.data[sy*stride+sx/perByte]>>(8-Bits-Bits*(sx%perByte)))&mask;
+        destination[column]=Bits==4 ? level*17 : levels[level];
+        source+=quotient; error+=remainder;
+        if (error>=destinationSize) { error-=destinationSize; ++source; }
+      }
+      if (transposed) lx+=orientation_==Orientation::Portrait ? -1 : 1;
+      else ly+=step;
+    }
+  }
+  static uint8_t grayLevel(Color color) {
+    return color==Color::Black ? 0 : color==Color::DarkGray ? 64 : color==Color::LightGray ? 192 : 255;
+  }
+  void plotGray(int16_t x,int16_t y,uint8_t level) {
+    if (!fb_ || x<0 || y<0 || x>=w_ || y>=h_ || !clip_.contains(x,y)) return;
+    int px=x,py=y;
+    switch (orientation_) {
+      case Orientation::Portrait: px=y; py=ph_-1-x; break;
+      case Orientation::PortraitInverted: px=pw_-1-y; py=x; break;
+      case Orientation::LandscapeClockwise: px=pw_-1-x; py=ph_-1-y; break;
+      default: break;
+    }
+    if (gray8_) { fb_[size_t(py)*pwb_+px]=level; return; }
+    auto& byte=fb_[size_t(py)*pwb_+px/8]; const uint8_t bit=0x80>>(px%8);
+    if (level < 255 && (255-level)*16 > bayerAt(x,y)*255) byte&=~bit;
+    else byte|=bit;
+  }
+  void fillGrayRect(Rect rect, Color color) {
+    if (!fb_ || rect.empty()) return;
+    int x=std::max<int>({0,rect.x,clip_.x}), y=std::max<int>({0,rect.y,clip_.y});
+    int right=std::min<int>({w_,int(rect.x)+rect.width,int(clip_.x)+clip_.width});
+    int bottom=std::min<int>({h_,int(rect.y)+rect.height,int(clip_.y)+clip_.height});
+    if (right<=x || bottom<=y) return;
+    int width=right-x,height=bottom-y,px=x,py=y;
+    switch (orientation_) {
+      case Orientation::Portrait: px=y; py=ph_-right; std::swap(width,height); break;
+      case Orientation::PortraitInverted: px=pw_-bottom; py=x; std::swap(width,height); break;
+      case Orientation::LandscapeClockwise: px=pw_-right; py=ph_-bottom; break;
+      default: break;
+    }
+    const auto level=grayLevel(color);
+    for (int row=py;row<py+height;++row) std::memset(fb_+size_t(row)*pwb_+px,level,width);
+  }
   Rect clip_{0, 0, 32767, 32767};
+  bool gray8_ = false;
   uint8_t* fb_;
   int16_t pw_;   // panel-native width (px)
   int16_t ph_;   // panel-native height (px)
@@ -329,7 +502,7 @@ class DisplayTarget final : public DrawTarget {
     }
   }
 
-  void plot(const int16_t x, const int16_t y, const Color color) {
+  void plot(const int16_t x, const int16_t y, const Color color, uint8_t coverage = 255) {
     if (!fb_ || !clip_.contains(x, y)) return;
     if (x < 0 || y < 0 || x >= w_ || y >= h_ || color == Color::Transparent) return;
     // Rotate the logical pixel into panel-native space. Transforms match
@@ -354,6 +527,14 @@ class DisplayTarget final : public DrawTarget {
         px = x;
         py = y;
         break;
+    }
+    if (gray8_) {
+      const uint8_t level = grayLevel(color);
+      auto& pixel = fb_[static_cast<int32_t>(py) * pwb_ + px];
+      if (coverage==255) { pixel=level; return; }
+      if (!coverage) return;
+      pixel = uint8_t((uint32_t(level)*coverage + uint32_t(pixel)*(255-coverage) + 127)/255);
+      return;
     }
     uint8_t& byte = fb_[static_cast<int32_t>(py) * pwb_ + (px >> 3)];
     const uint8_t mask = static_cast<uint8_t>(0x80 >> (px & 7));
@@ -475,7 +656,8 @@ class DisplayTarget final : public DrawTarget {
           if (a == 0) continue;
           const int16_t px = static_cast<int16_t>(penX + g.xOffset + gx);
           const int16_t py = static_cast<int16_t>(baseline + g.yOffset + gy);
-          if (a == 15 || a > bayerAt(px, py)) plot(px, py, color);
+          if (gray8_) plot(px, py, color, a*17);
+          else if (a == 15 || a > bayerAt(px, py)) plot(px, py, color);
         }
       }
       return;
@@ -509,7 +691,8 @@ class DisplayTarget final : public DrawTarget {
           const Color color = (inkColor == Color::Black || inkColor == Color::White)
                             ? (ink ? Color::Black : Color::White)
                             : inkColor;
-           for (uint16_t gy = 0; gy < rg.height; ++gy) {
+          if (gray8_) grayGlyph({int16_t(penX+rg.xoff),int16_t(baseline+rg.yoff),int16_t(rg.width),int16_t(rg.height)},rg.coverage,color);
+          else for (uint16_t gy = 0; gy < rg.height; ++gy) {
              const uint8_t* row = rg.coverage + static_cast<uint32_t>(gy) * rg.width;
              for (uint16_t gx = 0; gx < rg.width; ++gx) {
                const uint8_t a = row[gx];

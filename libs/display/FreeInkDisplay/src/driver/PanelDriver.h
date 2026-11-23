@@ -15,6 +15,7 @@
 #include <Arduino.h>
 
 #include "../../include/GrayscaleCapabilities.h"
+#include "../../include/RefreshMetrics.h"
 #include "../bus/EpdBus.h"
 
 namespace freeink {
@@ -65,6 +66,14 @@ class PanelDriver {
   // drivers without a trial call, and lets hosts size overlap buffers up
   // front. Must agree with what displayStart() actually returns.
   virtual bool supportsAsyncDisplay() const { return false; }
+  // External-bus drivers may finish on a worker rather than a GPIO BUSY pin.
+  virtual bool refreshBusy(EpdBus& bus) const { return bus.isBusy(); }
+  virtual RefreshMetrics lastRefreshMetrics() const { return {}; }
+  virtual bool lastRefreshSucceeded() const { return true; }
+  virtual bool supportsGray8() const { return false; }
+  // Borrowed luminance target (0 black, 255 white). A deferred driver must copy
+  // all pixels before returning; completion uses the ordinary finish contract.
+  virtual bool displayGray8Start(EpdBus&, const uint8_t*, uint16_t, RefreshMode) { return false; }
 
   // Two-call refresh split (CrossPoint EInkDisplay::triggerDisplay/completeDisplay).
   // For the shadowed async path the facade passes its own baseline copy as
