@@ -1,4 +1,7 @@
 #pragma once
+#ifdef FREEINK_HOST
+#include <HostRuntime.h>
+#endif
 
 // Native framebuffer DrawTarget — renders FreeInkUI with NO external graphics
 // library. This is the default render path for SDK apps: it needs only a raw
@@ -226,6 +229,9 @@ class DisplayTarget final : public DrawTarget {
   }
 
   void text(const Rect rect, const char* text, const TextStyle style) override {
+#ifdef FREEINK_HOST
+    freeink::host::textDrawn(rect.x, rect.y, rect.width, rect.height, text);
+#endif
     if (!text || rect.empty()) return;
     const BitmapFont& f = fontFor(style.font);
     // A solid foreground (the common case) maps to a 1-bit ink/paper pair; a
