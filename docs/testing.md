@@ -362,3 +362,7 @@ busy surface uses `deferPresentation()` and does not consume that failure budget
 Input regions remain unpublished until presentation succeeds. Real device timing,
 underruns, modal appearance and optical gray levels must be validated separately;
 the PicoInk consumer records those results in its responsiveness validation log.
+After a successful explicit resync, `recoverPresentation()` requests a fresh app
+frame before reopening input. The PicoInk surface test distinguishes a new
+successful presentation timestamp from stale success or another failed attempt,
+including an intervening status read.

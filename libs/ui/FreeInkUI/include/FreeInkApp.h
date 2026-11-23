@@ -937,6 +937,10 @@ public:
   }
   uint32_t cancelledInputs() const { return cancelledInputs_; }
   void cancelInput() { ++cancelledInputs_; }
+  void recoverPresentation() {
+    if (presentationFailed_ && !presentationPending_)
+      invalidate(RefreshHint::Fast);
+  }
   void deferPresentation() {
     if (!presentationPending_) return;
     presentationPending_ = false;
