@@ -243,6 +243,33 @@ void testCenteredDigitInk() {
   }
 }
 
+void testRuntimeFontFallback() {
+  struct Source : RuntimeGlyphSource {
+    uint32_t codepoint; int16_t width; uint8_t pixels[1]{255};
+    int glyphCalls = 0, advanceCalls = 0;
+    Source(uint32_t cp, int16_t advance) : codepoint(cp), width(advance) {}
+    bool glyph(uint32_t cp, uint16_t size, Glyph* out) override {
+      ++glyphCalls;
+      if (cp != codepoint) return false;
+      *out = {pixels,1,1,0,int16_t(-int16_t(size)),width}; return true;
+    }
+    int16_t advance(uint32_t cp, uint16_t) override {
+      ++advanceCalls; return cp == codepoint ? width : 0;
+    }
+  } latin('A',12), chinese(0x4e2d,24);
+  FallbackGlyphSource chain(latin,chinese);
+  RuntimeGlyphSource::Glyph glyph{};
+  CHECK(chain.glyph('A',24,&glyph)); CHECK(glyph.coverage == latin.pixels);
+  CHECK_EQ(chain.advance('A',24),12); CHECK_EQ(chinese.glyphCalls,0);
+  CHECK_EQ(chinese.advanceCalls,0);
+  CHECK(chain.glyph(0x4e2d,24,&glyph)); CHECK(glyph.coverage == chinese.pixels);
+  CHECK_EQ(chain.advance(0x4e2d,24),24);
+  CHECK(!chain.glyph(0x2603,24,&glyph)); CHECK_EQ(chain.advance(0x2603,24),0);
+  Source combining(0x0301,0), duplicate(0x0301,9);
+  FallbackGlyphSource marks(combining,duplicate);
+  CHECK_EQ(marks.advance(0x0301,24),0); CHECK_EQ(duplicate.advanceCalls,0);
+}
+
 void testDisplayTargetGray8() {
   uint8_t fb[32*16]; memset(fb,255,sizeof(fb));
   DisplayTarget target(fb,32,16,32,Orientation::LandscapeCounterClockwise,true);
@@ -6103,6 +6130,7 @@ int main() {
   testRect();
   testDisplayTarget();
   testDisplayTargetAlphaFont();
+  testRuntimeFontFallback();
   testDisplayTargetGray8();
   testCenteredDigitInk();
   testStackFillsExactly();

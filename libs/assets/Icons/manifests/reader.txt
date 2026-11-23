@@ -1,0 +1,16 @@
+home = house
+library = library-big
+folder = folder
+settings = settings
+book = book-open
+usb = usb
+storage = hard-drive
+back = arrow-left
+grid = layout-grid
+list = list
+refresh = refresh-cw
+type = a-large-small
+sun = sun
+bluetooth = bluetooth
+moon = moon
+network = wifi

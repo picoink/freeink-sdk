@@ -58,6 +58,25 @@ class RuntimeGlyphSource {
   virtual int16_t advance(uint32_t codepoint, uint16_t pixelSize) = 0;
 };
 
+class FallbackGlyphSource final : public RuntimeGlyphSource {
+ public:
+  FallbackGlyphSource(RuntimeGlyphSource& primary, RuntimeGlyphSource& fallback)
+      : primary_(primary), fallback_(fallback) {}
+  bool glyph(uint32_t cp,uint16_t size,Glyph* out) override {
+    return primary_.glyph(cp,size,out) || fallback_.glyph(cp,size,out);
+  }
+  int16_t advance(uint32_t cp,uint16_t size) override {
+    const auto n = primary_.advance(cp,size);
+    if (n != 0) return n;
+    Glyph found{};
+    // Combining marks can legitimately have zero advance.
+    return primary_.glyph(cp,size,&found) ? 0 : fallback_.advance(cp,size);
+  }
+ private:
+  RuntimeGlyphSource& primary_;
+  RuntimeGlyphSource& fallback_;
+};
+
 class DisplayTarget final : public DrawTarget {
  public:
   // Logical font slots. ThemeTokens.fontSmall/Body/Title are just FontId values
