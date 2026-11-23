@@ -17,5 +17,27 @@ with tempfile.TemporaryDirectory(prefix="freeink-pan-") as tmp:
                         "-I", str(here.parents[1] / "include"),
                         *[f"-D{f}=1" for f in case], f"-DEXPECT_SUPPORTED={int(n == 1)}",
                         str(here / "capability.cpp"), "-o", str(exe)], check=True)
-        subprocess.run([str(exe)], check=True)
-print("Bluetooth PAN capability matrix passed")
+        subprocess.run([str(exe)], check=True, timeout=30)
+    exe = Path(tmp) / "protocol"
+    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++17", "-Wall", "-Wextra", "-Werror",
+                    "-DFREEINK_HOST=1", "-I", str(here.parents[1] / "include"),
+                    str(here / "protocol.cpp"), str(here.parents[1] / "src/BluetoothPan.cpp"),
+                    "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True, timeout=30)
+    stubs = Path(tmp) / "stubs"
+    names = ["sdkconfig.h", "soc/soc_caps.h", "Arduino.h", "Network.h", "Preferences.h",
+             "esp32-hal-bt.h", "esp32-hal-alloc-bt-classic-mem.h", "esp_bt_main.h", "esp_bt_device.h",
+             "esp_gap_bt_api.h", "esp_pan_api.h", "esp_netif.h", "esp_netif_defaults.h",
+             "freertos/FreeRTOS.h", "freertos/task.h", "freertos/queue.h"]
+    for name in names:
+        header = stubs / name
+        header.parent.mkdir(parents=True, exist_ok=True)
+        header.write_text('#include "' + str(here / "fakes.h") + '"\n')
+    exe = Path(tmp) / "lifecycle"
+    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++17", "-Wall", "-Wextra", "-Werror",
+                    "-DFREEINK_CAP_BLUETOOTH_PAN=1", "-DARDUINO_ARCH_ESP32=1",
+                    "-fsanitize=" + os.environ.get("SANITIZERS", "undefined"), "-fno-omit-frame-pointer",
+                    "-I", str(stubs), "-I", str(here.parents[1] / "include"),
+                    str(here / "lifecycle.cpp"), "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True, timeout=30)
+print("Bluetooth PAN capability, framing, retry, lifecycle and bounded RX tests passed")
