@@ -15,6 +15,8 @@ import sys
 import tarfile
 import venv
 
+from source import IDF_COMMIT, hydrate, idf_source, verify_submodules
+
 HERE = Path(__file__).resolve().parent
 PLATFORM = "https://github.com/pioarduino/platform-espressif32/releases/download/61.04.00-RC1/platform-espressif32.zip"
 CORE = "ba0ce19fe387aef748db7475e514278d621a6586"
@@ -70,12 +72,13 @@ def export_libraries(core, output):
         if f"#define CONFIG_{symbol} 1" not in config:
             raise RuntimeError(f"Missing CONFIG_{symbol}; refusing to export incomplete libraries")
     metadata = json.loads((stage / "package.json").read_text())
-    metadata["version"] = "6.1.0+freeink.pan.1"
+    metadata["version"] = "6.1.0+freeink.pan.2"
     (stage / "package.json").write_text(json.dumps(metadata, indent=2) + "\n")
     (stage / "freeink-pan.json").write_text(json.dumps({
-        "idf_base": "94639ab7251", "pan_source": "ad20ded62a2d67a26e501fdc1905f43ba7ad6c81",
+        "idf_base": IDF_COMMIT, "pan_source": "ad20ded62a2d67a26e501fdc1905f43ba7ad6c81",
         "patch_sha256": hashlib.sha256((HERE / "esp-idf-pan.patch").read_bytes()).hexdigest(),
         "config_sha256": hashlib.sha256((HERE / "pan.sdkconfig").read_bytes()).hexdigest(),
+        "submodules_sha256": hashlib.sha256((HERE / "submodules.json").read_bytes()).hexdigest(),
     }, indent=2) + "\n")
     backup = output.with_name(output.name + ".previous")
     if backup.exists():
@@ -118,6 +121,17 @@ def main():
     for package in PACKAGES:
         run([*pio, "pkg", "install", "--global", "--tool", package], env=env)
     idf = core / "packages/framework-espidf"
+    tree = hydrate(idf, cache / "idf-exact", "espressif/esp-idf", IDF_COMMIT, idf_source)
+    # Verification removes generated files; PIO recreates this component only
+    # when its directory is absent, including on subsequent builds.
+    shutil.rmtree(idf / "components/__pio_env", ignore_errors=True)
+    submodules = json.loads((HERE / "submodules.json").read_text())
+    verify_submodules(tree, submodules)
+    for item in submodules:
+        include = (lambda path: path.startswith("esp32s31") or "/" not in path) if item["path"] in (
+            "components/esp_wifi/lib", "components/esp_phy/lib", "components/esp_coex/lib") else (lambda path: True)
+        hydrate(idf / item["path"], cache / "submodules" / item["path"].replace("/", "_"),
+                item["repository"], item["sha"], include)
     patch = HERE / "esp-idf-pan.patch"
     # Check both directions so rerunning with the same input is harmless. Fail
     # on a different baseline instead of silently producing a mixed framework.
@@ -145,7 +159,8 @@ def main():
     lock = HERE / "dependencies.lock"
     if lock.exists():
         shutil.copy2(lock, work / "dependencies.lock")
-    shutil.copy2(HERE / "pan.sdkconfig", work / "pan.sdkconfig")
+    patch_hash = hashlib.sha256(patch.read_bytes()).hexdigest()
+    (work / "pan.sdkconfig").write_text(f"# FreeInk IDF {IDF_COMMIT} PAN {patch_hash}\n" + (HERE / "pan.sdkconfig").read_text())
     (work / "platformio.ini").write_text(f"""[env:pan]
 platform = {PLATFORM}
 board = esp32-s31-coreboard-1

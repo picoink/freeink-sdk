@@ -1,7 +1,7 @@
 diff --git a/components/bt/common/btc/core/btc_task.c b/components/bt/common/btc/core/btc_task.c
 --- a/components/bt/common/btc/core/btc_task.c
 +++ b/components/bt/common/btc/core/btc_task.c
-@@ -41,6 +41,9 @@
+@@ -44,6 +44,9 @@
  #if (BTC_SPP_INCLUDED == TRUE)
  #include "btc_spp.h"
  #endif /* #if (BTC_SPP_INCLUDED == TRUE) */
@@ -11,7 +11,7 @@ diff --git a/components/bt/common/btc/core/btc_task.c b/components/bt/common/btc
  #if (BTC_L2CAP_INCLUDED == TRUE)
  #include "btc_l2cap.h"
  #endif /* #if (BTC_L2CAP_INCLUDED == TRUE) */
-@@ -143,6 +146,9 @@
+@@ -146,6 +149,9 @@
  #if (BTC_SPP_INCLUDED == TRUE)
      [BTC_PID_SPP]         = {btc_spp_call_handler,        btc_spp_cb_handler      },
  #endif /* #if (BTC_SPP_INCLUDED == TRUE) */
@@ -85,7 +85,7 @@ diff --git a/components/bt/host/bluedroid/CMakeLists.txt b/components/bt/host/bl
      "${CMAKE_CURRENT_LIST_DIR}/stack/rfcomm/port_api.c"
      "${CMAKE_CURRENT_LIST_DIR}/stack/rfcomm/port_rfc.c"
      "${CMAKE_CURRENT_LIST_DIR}/stack/rfcomm/port_utils.c"
-@@ -343,6 +356,7 @@
+@@ -369,6 +382,7 @@
      ${CMAKE_CURRENT_LIST_DIR}/bta/hh/include
      ${CMAKE_CURRENT_LIST_DIR}/bta/jv/include
      ${CMAKE_CURRENT_LIST_DIR}/bta/pba/include
@@ -93,7 +93,7 @@ diff --git a/components/bt/host/bluedroid/CMakeLists.txt b/components/bt/host/bl
      ${CMAKE_CURRENT_LIST_DIR}/bta/sdp/include
      ${CMAKE_CURRENT_LIST_DIR}/bta/sys/include
      ${CMAKE_CURRENT_LIST_DIR}/device/include
-@@ -365,6 +379,8 @@
+@@ -391,6 +405,8 @@
      ${CMAKE_CURRENT_LIST_DIR}/stack/rfcomm/include
      ${CMAKE_CURRENT_LIST_DIR}/stack/obex/include
      ${CMAKE_CURRENT_LIST_DIR}/stack/goep/include
@@ -780,45 +780,50 @@ new file mode 100644
 diff --git a/components/bt/host/bluedroid/bta/dm/bta_dm_cfg.c b/components/bt/host/bluedroid/bta/dm/bta_dm_cfg.c
 --- a/components/bt/host/bluedroid/bta/dm/bta_dm_cfg.c
 +++ b/components/bt/host/bluedroid/bta/dm/bta_dm_cfg.c
-@@ -117,11 +117,21 @@
- tBTA_DM_RM *const p_bta_dm_rm_cfg = (tBTA_DM_RM *) &bta_dm_rm_cfg;
+@@ -118,10 +118,10 @@
  
  #if BLE_INCLUDED == TRUE
--#  define BTA_DM_NUM_PM_ENTRY         10  /* number of entries in bta_dm_pm_cfg except the first */
+ #  define BTA_DM_NUM_PM_ENTRY_BASE    10  /* number of entries in bta_dm_pm_cfg except the first */
 -#  define BTA_DM_NUM_PM_SPEC          10  /* number of entries in bta_dm_pm_spec */
-+#  define BTA_DM_NUM_PM_ENTRY_BASE    10  /* number of entries in bta_dm_pm_cfg except the first */
 +#  define BTA_DM_NUM_PM_SPEC_BASE     10  /* number of entries in bta_dm_pm_spec */
  #else
--#  define BTA_DM_NUM_PM_ENTRY         8  /* number of entries in bta_dm_pm_cfg except the first */
+ #  define BTA_DM_NUM_PM_ENTRY_BASE    8  /* number of entries in bta_dm_pm_cfg except the first */
 -#  define BTA_DM_NUM_PM_SPEC          8  /* number of entries in bta_dm_pm_spec */
-+#  define BTA_DM_NUM_PM_ENTRY_BASE    8   /* number of entries in bta_dm_pm_cfg except the first */
-+#  define BTA_DM_NUM_PM_SPEC_BASE     8   /* number of entries in bta_dm_pm_spec */
-+#endif
-+
++#  define BTA_DM_NUM_PM_SPEC_BASE     8  /* number of entries in bta_dm_pm_spec */
+ #endif
+ 
+ #if (BTA_PBA_CLIENT_INCLUDED == TRUE)
+@@ -130,7 +130,16 @@
+ #  define BTA_DM_NUM_PM_PBC_ENTRY     0
+ #endif
+ 
+-#define BTA_DM_NUM_PM_ENTRY           (BTA_DM_NUM_PM_ENTRY_BASE + BTA_DM_NUM_PM_PBC_ENTRY)
 +#if (BTA_PAN_INCLUDED == TRUE)
-+#  define BTA_DM_NUM_PM_ENTRY         (BTA_DM_NUM_PM_ENTRY_BASE + 3)
++#  define BTA_DM_NUM_PM_PAN_ENTRY     3
 +#  define BTA_DM_NUM_PM_SPEC          (BTA_DM_NUM_PM_SPEC_BASE + 2)
 +#  define BTA_DM_PM_PANU_SPEC_IDX     BTA_DM_NUM_PM_SPEC_BASE
 +#  define BTA_DM_PM_NAP_SPEC_IDX      (BTA_DM_NUM_PM_SPEC_BASE + 1)
 +#else
-+#  define BTA_DM_NUM_PM_ENTRY         BTA_DM_NUM_PM_ENTRY_BASE
++#  define BTA_DM_NUM_PM_PAN_ENTRY     0
 +#  define BTA_DM_NUM_PM_SPEC          BTA_DM_NUM_PM_SPEC_BASE
- #endif
++#endif
++#define BTA_DM_NUM_PM_ENTRY           (BTA_DM_NUM_PM_ENTRY_BASE + BTA_DM_NUM_PM_PBC_ENTRY + BTA_DM_NUM_PM_PAN_ENTRY)
  
  #if (BTA_DM_PM_INCLUDED == TRUE)
-@@ -140,6 +150,11 @@
-     , {BTA_ID_GATTC,  BTA_ALL_APP_ID,   8} /* gattc spec table */
-     , {BTA_ID_GATTS,  BTA_ALL_APP_ID,   9} /* gatts spec table */
+ 
+@@ -151,6 +160,11 @@
+ #if (BTA_PBA_CLIENT_INCLUDED == TRUE)
+     , {BTA_ID_PBC, BTA_ALL_APP_ID, 2}  /* pbc reuses ftc/opc spec table */
  #endif
 +#if (BTA_PAN_INCLUDED == TRUE)
-+    , {BTA_ID_PAN, BTUI_PAN_ID_PANU, BTA_DM_PM_PANU_SPEC_IDX}  /* PANU spec table */
-+    , {BTA_ID_PAN, BTUI_PAN_ID_NAP,  BTA_DM_PM_NAP_SPEC_IDX}   /* NAP spec table */
-+    , {BTA_ID_PAN, BTUI_PAN_ID_GN,   BTA_DM_PM_NAP_SPEC_IDX}   /* GN reuses NAP spec table */
++    , {BTA_ID_PAN, BTUI_PAN_ID_PANU, BTA_DM_PM_PANU_SPEC_IDX}
++    , {BTA_ID_PAN, BTUI_PAN_ID_NAP, BTA_DM_PM_NAP_SPEC_IDX}
++    , {BTA_ID_PAN, BTUI_PAN_ID_GN, BTA_DM_PM_NAP_SPEC_IDX}
 +#endif
  };
  
  #define BTA_DM_PM_SPEC_TO_OFFSET     (197) /* timeout offset to avoid conflict with other bluedroid host */
-@@ -341,6 +356,45 @@
+@@ -352,6 +366,45 @@
      }
  
  #endif
@@ -4503,7 +4508,7 @@ diff --git a/components/bt/host/bluedroid/common/include/common/bt_target.h b/co
  #endif /* UC_BT_CLASSIC_ENABLED */
  
  /* This is set to enable use of GAP L2CAP connections. */
-@@ -708,6 +718,14 @@
+@@ -744,6 +754,14 @@
  #define BTC_SPP_INCLUDED FALSE
  #endif
  
@@ -4518,7 +4523,7 @@ diff --git a/components/bt/host/bluedroid/common/include/common/bt_target.h b/co
  #ifndef BTC_HH_INCLUDED
  #define BTC_HH_INCLUDED FALSE
  #endif
-@@ -1284,6 +1302,12 @@
+@@ -1320,6 +1338,12 @@
  #define BTM_PBA_SEC_SERVICE_RECORDS 0
  #endif
  
@@ -4531,7 +4536,7 @@ diff --git a/components/bt/host/bluedroid/common/include/common/bt_target.h b/co
  #if BTA_AV_CA_INCLUDED
  #define BTM_AC_VA_SEC_SERVICE_RECORDS 1
  #else
-@@ -1342,7 +1366,7 @@
+@@ -1378,7 +1402,7 @@
     + BTM_AVCT_SEC_SERVICE_RECORDS + BTM_AVDT_SEC_SERVICE_RECORDS + BTM_GAP_SEC_SERVICE_RECORDS    \
     + BTM_HIDD_SEC_SERVICE_RECORDS  + BTM_GATT_SEC_SERVICE_RECORDS + BTM_PBA_SEC_SERVICE_RECORDS   \
     + BTM_HIDH_SEC_SERVICE_RECORDS + BTM_SEC_DEV_SERVICE_RECORDS + BTM_HF_SEC_SERVICE_RECORDS      \
@@ -8012,7 +8017,7 @@ new file mode 100644
 diff --git a/components/bt/host/bluedroid/stack/btu/btu_task.c b/components/bt/host/bluedroid/stack/btu/btu_task.c
 --- a/components/bt/host/bluedroid/stack/btu/btu_task.c
 +++ b/components/bt/host/bluedroid/stack/btu/btu_task.c
-@@ -349,7 +349,7 @@
+@@ -538,7 +538,7 @@
  #endif
  #if ((defined(BNEP_INCLUDED) && BNEP_INCLUDED == TRUE))
      case BTU_TTYPE_BNEP:

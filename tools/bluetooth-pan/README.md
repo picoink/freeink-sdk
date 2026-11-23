@@ -33,7 +33,14 @@ sufficient: the capability API also checks the host stack and PAN configuration.
 
 ## Source provenance
 
-- ESP-IDF base: `94639ab7251`, packaged as pioarduino `esp-idf-v6.1.0`.
+- ESP-IDF base: `94639ab7251fc8230ca725df638c9a57dbb17153`, the exact
+  revision recorded by the Arduino libraries' `versions.txt`. The pioarduino
+  `esp-idf-v6.1.0` package is only a bootstrap and contains a different revision.
+  The builder reconstructs IDF sources from the pinned Git tree, verifies every
+  file's Git blob hash and restores the S31 dependencies in `submodules.json`,
+  checking their revisions against the same IDF tree.
+  In particular, the CPU protection startup code and controller archives must
+  match this baseline; a successful link alone cannot detect a mismatch.
 - Arduino core/libraries: `4.0.0-RC1` (`9f21380ff` core).
 - PAN source snapshot: Espressif ESP-IDF
   [`ad20ded62a2d67a26e501fdc1905f43ba7ad6c81`](https://github.com/espressif/esp-idf/tree/ad20ded62a2d67a26e501fdc1905f43ba7ad6c81/components/bt/host/bluedroid).
@@ -42,7 +49,8 @@ sufficient: the capability API also checks the host stack and PAN configuration.
 - The patch includes the newer PAN/BNEP fixes, with `ESP_PAN_SEC_*` expressed as
   their equivalent 6.1 BTM masks (`0x0012`, `0x0024`), since the shared public
   `ESP_BT_SEC_*` names were added after this baseline. Apache-2.0 notices remain
-  in the upstream files; ESP-IDF's license continues to apply.
+  in the upstream files; ESP-IDF's license continues to apply. The integration
+  preserves the baseline's existing PBAP power-management table entries.
 - Arduino TinyUSB component: lib-builder
   `8343d0aa1995f1d23d5dbe0b03e66ee3f242cd15`; TinyUSB
   `b80f1c107d0a33eb3be055f95fe0b3b9d6c0be48`.
@@ -57,6 +65,18 @@ removes the NimBLE `log_printf` wrapper. Generated memory/section scripts and
 per-chip `sdkconfig` remain paired with the rebuilt libraries. A second Arduino
 link deliberately references PAN, Classic controller and USB MSC to check the
 exported package. `freeink-pan.json` records patch/config hashes in the output.
+Bluetooth host allocations prefer PSRAM, preserving internal memory for the
+controller, display and network buffers. Host task stacks remain internal.
 
 This is compilation evidence only. Pairing, BNEP traffic, DHCP, radio teardown,
 RTC and iPhone behavior must be validated on hardware separately.
+
+Source-reconstruction regression tests run offline:
+
+```sh
+python3 freeink-sdk/tools/bluetooth-pan/test_source.py
+```
+
+Set `FREEINK_SOURCE_GH=1` to fetch changed blobs through an already authenticated
+GitHub CLI when raw-content downloads are unavailable. The default uses curl;
+both transports verify the same pinned blob hashes and cache verified files.
