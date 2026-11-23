@@ -318,6 +318,37 @@ class DisplayTarget final : public DrawTarget {
   }
 
  private:
+  void grayGlyph(Rect rect, const uint8_t* coverage, Color color) {
+    if (!fb_ || !coverage || color==Color::Transparent) return;
+    const int left=std::max<int>({0,rect.x,clip_.x}), top=std::max<int>({0,rect.y,clip_.y});
+    const int right=std::min<int>({w_,rect.right(),clip_.right()});
+    const int bottom=std::min<int>({h_,rect.bottom(),clip_.bottom()});
+    if (right<=left || bottom<=top) return;
+    int px=left,py=top,lx=left,ly=top,columns=right-left,rows=bottom-top;
+    int columnStep=1,rowStep=rect.width;
+    switch (orientation_) {
+      case Orientation::Portrait:
+        px=top; py=ph_-right; lx=right-1; columnStep=rect.width; rowStep=-1; std::swap(columns,rows); break;
+      case Orientation::PortraitInverted:
+        px=pw_-bottom; py=left; ly=bottom-1; columnStep=-rect.width; rowStep=1; std::swap(columns,rows); break;
+      case Orientation::LandscapeClockwise:
+        px=pw_-right; py=ph_-bottom; lx=right-1; ly=bottom-1; columnStep=-1; rowStep=-rect.width; break;
+      default: break;
+    }
+    const int start=(ly-rect.y)*rect.width+lx-rect.x;
+    const uint32_t level=grayLevel(color);
+    // Rotate and clip once per glyph, then blend in physical row order so
+    // opaque strokes use contiguous stores without reading PSRAM back.
+    for (int row=0;row<rows;++row) {
+      const auto* source=coverage+start+row*rowStep;
+      auto* destination=fb_+size_t(py+row)*pwb_+px;
+      for (int column=0;column<columns;++column) {
+        const uint32_t alpha=source[column*columnStep];
+        if (alpha==255) destination[column]=level;
+        else if (alpha) destination[column]=(level*alpha+uint32_t(destination[column])*(255-alpha)+127)/255;
+      }
+    }
+  }
   void stretchGray2(Rect rect, const BitmapRef& bitmap) {
     if (!fb_) return;
     const int left=std::max<int>({0,rect.x,clip_.x}), top=std::max<int>({0,rect.y,clip_.y});
@@ -623,15 +654,15 @@ class DisplayTarget final : public DrawTarget {
           const Color color = (inkColor == Color::Black || inkColor == Color::White)
                             ? (ink ? Color::Black : Color::White)
                             : inkColor;
-           for (uint16_t gy = 0; gy < rg.height; ++gy) {
+          if (gray8_) grayGlyph({int16_t(penX+rg.xoff),int16_t(baseline+rg.yoff),int16_t(rg.width),int16_t(rg.height)},rg.coverage,color);
+          else for (uint16_t gy = 0; gy < rg.height; ++gy) {
              const uint8_t* row = rg.coverage + static_cast<uint32_t>(gy) * rg.width;
              for (uint16_t gx = 0; gx < rg.width; ++gx) {
                const uint8_t a = row[gx];
                if (a == 0) continue;
                const int16_t px = static_cast<int16_t>(penX + rg.xoff + gx);
                const int16_t py = static_cast<int16_t>(baseline + rg.yoff + gy);
-               if (gray8_) plot(px, py, color, a);
-               else if (a >= 240 || (a >> 4) > bayerAt(px, py)) plot(px, py, color);
+               if (a >= 240 || (a >> 4) > bayerAt(px, py)) plot(px, py, color);
              }
            }
           penX = static_cast<int16_t>(penX + rg.advance);

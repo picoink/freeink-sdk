@@ -72,6 +72,13 @@ JPEGs. Rebooted disk hits each executed the hardware decoder in 0.97–1.10 ms
 (21–24 ms complete cache tasks). The codec retains its early-created handles;
 the encoder's CPU-written header must not be invalidated with the DMA payload.
 
+The FreeInkUI Gray8 suite also compares runtime-glyph rendering with independent
+scalar golden frames in all four orientations, including every alpha value,
+negative bearings, clipping, padded rows, colors and overlapping text. Runtime
+glyphs now traverse physical rows after clipping once per glyph. Device timing
+is recorded separately by the PicoInk consumer; pixel equivalence alone does
+not establish a hardware speedup.
+
 ## Battery gauge
 
 ```sh

@@ -42,4 +42,32 @@ int main() {
     std::printf("bitmap %u: %llu\n",orientation,(unsigned long long)digest);
     if (bitmapGolden[orientation]) assert(digest==bitmapGolden[orientation]);
   }
+  // Scalar runtime-glyph goldens: every alpha value, padded output rows,
+  // negative bearings, clipping, overlap, colors and all orientations.
+  struct Source : RuntimeGlyphSource {
+    std::array<uint8_t,17*19> coverage{};
+    Source() { for (size_t i=0;i<coverage.size();++i) coverage[i]=uint8_t(i*37); }
+    bool glyph(uint32_t,uint16_t,Glyph* out) override {
+      *out={coverage.data(),17,19,-2,-18,13}; return true;
+    }
+    int16_t advance(uint32_t,uint16_t) override { return 13; }
+  } source;
+  constexpr uint64_t glyphGolden[]={4097008610162319182ULL,16055920395469691003ULL,4620365512274218134ULL,1006011094707288379ULL};
+  for (unsigned orientation=0;orientation<4;++orientation) {
+    std::array<uint8_t,67*47> pixels; pixels.fill(37);
+    DisplayTarget target(pixels.data(),61,47,67,Orientation(orientation),true);
+    target.setFont(0,source,18,23,19);
+    uint32_t random=98765; uint64_t digest=14695981039346656037ULL;
+    auto next=[&]() { random^=random<<13; random^=random>>17; random^=random<<5; return random; };
+    for (unsigned n=0;n<200;++n) {
+      target.setClipRect({int16_t(next()%30-8),int16_t(next()%30-8),int16_t(next()%65),int16_t(next()%65)});
+      Rect r{int16_t(next()%65-10),int16_t(next()%65-10),48,46};
+      const Color colors[]={Color::Black,Color::DarkGray,Color::LightGray,Color::White,Color::Transparent};
+      TextStyle style; style.color=colors[next()%5]; style.inverted=next()%2;
+      target.text(r,"Ag",style);
+      for (auto pixel:pixels) { digest^=pixel; digest*=1099511628211ULL; }
+    }
+    std::printf("glyph %u: %llu\n",orientation,(unsigned long long)digest);
+    if (glyphGolden[orientation]) assert(digest==glyphGolden[orientation]);
+  }
 }
