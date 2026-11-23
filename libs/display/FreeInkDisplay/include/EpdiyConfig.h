@@ -18,6 +18,7 @@ struct EpdiyConfig {
   enum EpdInitOptions initOptions;
   int vcomMv;                     // VCOM magnitude in mV handed to the board; 0 = board default
   int temperatureC;               // waveform temperature when the board reports none
+  bool deferredRefresh = false;   // opt-in SDK worker; other boards retain synchronous behavior
 };
 
 }  // namespace freeink

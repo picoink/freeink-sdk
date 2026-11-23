@@ -3,6 +3,10 @@
 #if FREEINK_DRIVER_EPDIY
 
 #include <esp_heap_caps.h>
+#include <freertos/idf_additions.h>
+#if CONFIG_PM_ENABLE
+#include <esp_pm.h>
+#endif
 
 #include <cstring>
 #include <array>
@@ -52,6 +56,27 @@ enum EpdDrawMode modeFor(RefreshMode mode) {
 }  // namespace
 
 EpdiyDriver::EpdiyDriver(const EpdiyConfig& cfg) : _cfg(cfg) {}
+EpdiyDriver::~EpdiyDriver() { stopWorker(); }
+
+void EpdiyDriver::runWorker(void* context) {
+  auto& driver = *static_cast<EpdiyDriver*>(context);
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    if (driver._stop.load()) break;
+    driver.update(driver._lastBaseMode, driver._jobFull);
+    driver._working.store(false);
+  }
+  driver._exited.store(true); // No further access to the driver after this point.
+  vTaskDeleteWithCaps(nullptr);
+}
+void EpdiyDriver::stopWorker() {
+  if (!_worker) return;
+  while (_working.load()) delay(1);
+  _stop.store(true); xTaskNotifyGive(_worker);
+  while (!_exited.load()) delay(1);
+  _worker = nullptr;
+}
+
 
 PanelGeometry EpdiyDriver::geometry() const {
   const uint16_t w = BoardConfig::ACTIVE.displayWidth;
@@ -81,10 +106,18 @@ void EpdiyDriver::begin(EpdBus& bus) {
   if (_lsb) memset(_lsb, 0, planeBytes);
   if (_msb) memset(_msb, 0, planeBytes);
   _ready = _hl.front_fb != nullptr;
+  if (_ready && _cfg.deferredRefresh && !_worker) {
+    _stop.store(false); _exited.store(false);
+    if (xTaskCreatePinnedToCoreWithCaps(runWorker, "fi_present", 8192, this, 2,
+        &_worker, tskNO_AFFINITY, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) != pdPASS) {
+      _worker = nullptr; _exited.store(true);
+    }
+  }
 }
 
 void EpdiyDriver::deepSleep(EpdBus& bus) {
   (void)bus;
+  stopWorker();
   if (!_ready) return;
   epd_poweroff();
   epd_deinit();
@@ -96,6 +129,11 @@ void EpdiyDriver::deepSleep(EpdBus& bus) {
 // so the first draw clears the glass and draws from white, and full refreshes
 // drive every pixel (the vendor firmware's sequence).
 bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
+#if CONFIG_PM_ENABLE
+  esp_pm_lock_handle_t awake = nullptr;
+  if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "epdiy-present", &awake) == ESP_OK)
+    esp_pm_lock_acquire(awake);
+#endif
   epd_poweron();
   enum EpdDrawError err;
   if (!_panelKnown) {
@@ -109,34 +147,52 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
   epd_poweroff();
   // An interrupted waveform leaves the optical state unknown: clear again next time.
   _panelKnown = err == EPD_DRAW_SUCCESS;
+  _success.store(_panelKnown);
+#if CONFIG_PM_ENABLE
+  if (awake) { esp_pm_lock_release(awake); esp_pm_lock_delete(awake); }
+#endif
   return _panelKnown;
 }
 
-void EpdiyDriver::display(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, RefreshMode mode, bool turnOff) {
-  (void)bus;
-  (void)prev;  // EPDiy's highlevel state keeps the previous frame
-  (void)turnOff;  // always powered off after the waveform
-  if (!_ready || fb == nullptr) return;
+void EpdiyDriver::prepare(const uint8_t* fb, RefreshMode mode) {
   const PanelGeometry g = geometry();
   auto* dst = reinterpret_cast<uint32_t*>(epd_hl_get_framebuffer(&_hl));
   for (uint32_t i = 0; i < g.bufferSize; ++i) dst[i] = gExpand[fb[i]];
   _lastBaseMode = modeFor(mode);
+}
+void EpdiyDriver::display(EpdBus& bus, const uint8_t* fb, const uint8_t*, RefreshMode mode, bool) {
+  displayFinish(bus, nullptr);
+  if (!_ready || !fb) { _success.store(false); return; }
+  prepare(fb, mode);
   update(_lastBaseMode, mode != RefreshMode::Fast);
+}
+bool EpdiyDriver::displayStart(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, RefreshMode mode, bool off) {
+  if (!_worker) { display(bus, fb, prev, mode, off); return false; }
+  displayFinish(bus, nullptr);
+  if (!_ready || !fb) { _success.store(false); return false; }
+  // EPDiy already owns a full 4bpp target: copy before returning, never keep the
+  // caller's framebuffer pointer or allocate a second per-refresh snapshot.
+  prepare(fb, mode); _jobFull = mode != RefreshMode::Fast;
+  _working.store(true); xTaskNotifyGive(_worker);
+  return true;
+}
+void EpdiyDriver::displayFinish(EpdBus&, const uint8_t*) {
+  while (_working.load()) delay(1);
 }
 
 void EpdiyDriver::copyGrayscaleLsb(EpdBus& bus, const uint8_t* lsb) {
-  (void)bus;
+  displayFinish(bus, nullptr);
   if (_lsb && lsb) memcpy(_lsb, lsb, geometry().bufferSize);
 }
 
 void EpdiyDriver::copyGrayscaleMsb(EpdBus& bus, const uint8_t* msb) {
-  (void)bus;
+  displayFinish(bus, nullptr);
   if (_msb && msb) memcpy(_msb, msb, geometry().bufferSize);
 }
 
 void EpdiyDriver::writeGrayscalePlaneStrip(EpdBus& bus, GrayPlane plane, const uint8_t* rows, uint16_t yStart,
                                            uint16_t numRows) {
-  (void)bus;
+  displayFinish(bus, nullptr);
   uint8_t* dst = plane == GrayPlane::Lsb ? _lsb : _msb;
   if (!dst || !rows) return;
   const PanelGeometry g = geometry();
@@ -147,7 +203,7 @@ void EpdiyDriver::writeGrayscalePlaneStrip(EpdBus& bus, GrayPlane plane, const u
 
 void EpdiyDriver::displayGray(EpdBus& bus, const uint8_t* fb, bool turnOff, const unsigned char* lut,
                               bool factoryMode) {
-  (void)bus;
+  displayFinish(bus, nullptr);
   (void)fb;  // the base page is already in EPDiy's framebuffer from display()
   (void)turnOff;
   (void)lut;

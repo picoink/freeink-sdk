@@ -185,6 +185,7 @@ class FreeInkDisplay {
   void displayBufferAsyncNoShadow(RefreshMode mode = FAST_REFRESH);
   // True while an async refresh is still running on the panel.
   bool refreshBusy();
+  bool lastRefreshSucceeded() const;
   // Block until a pending refresh completes (no-op when none is): the async
   // window drains via the ISR edge wait (finishDisplayAsync), a trigger/complete
   // split via syncPendingAsync's displayFinish path.

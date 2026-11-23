@@ -669,7 +669,11 @@ bool FreeInkDisplay::refreshBusy() {
   // false, call waitRefreshComplete() (or any blocking display op) to drain it.
   if (!_refreshPending) return false;
   DisplayPmLock pmLock;
-  return _refreshPending && _bus.isBusy();
+  return _refreshPending && _driver->refreshBusy(_bus);
+}
+
+bool FreeInkDisplay::lastRefreshSucceeded() const {
+  return _driver && _driver->lastRefreshSucceeded();
 }
 
 void FreeInkDisplay::displayBuffer(RefreshMode mode, bool turnOffScreen) {

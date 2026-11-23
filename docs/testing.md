@@ -128,6 +128,7 @@ and the actual controller settling time still require a device check.
 ```sh
 python3 libs/display/FreeInkDisplay/test/host/run_bus.py
 python3 libs/display/FreeInkDisplay/test/host/run_pro.py
+python3 libs/display/FreeInkDisplay/test/host/run_epdiy.py
 python3 libs/display/FreeInkDisplay/test/host/run_uc8279.py
 python3 libs/display/FreeInkDisplay/test/host/run_uc8279c_a4.py
 python3 libs/display/FreeInkDisplay/test/host/run_uc8253_power.py

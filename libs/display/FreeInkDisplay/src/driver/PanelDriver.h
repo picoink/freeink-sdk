@@ -65,6 +65,9 @@ class PanelDriver {
   // drivers without a trial call, and lets hosts size overlap buffers up
   // front. Must agree with what displayStart() actually returns.
   virtual bool supportsAsyncDisplay() const { return false; }
+  // External-bus drivers may finish on a worker rather than a GPIO BUSY pin.
+  virtual bool refreshBusy(EpdBus& bus) const { return bus.isBusy(); }
+  virtual bool lastRefreshSucceeded() const { return true; }
 
   // Two-call refresh split (CrossPoint EInkDisplay::triggerDisplay/completeDisplay).
   // For the shadowed async path the facade passes its own baseline copy as

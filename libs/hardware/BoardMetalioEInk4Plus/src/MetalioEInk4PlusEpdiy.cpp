@@ -215,7 +215,7 @@ const EpdBoardDefinition kBoard = {
 const EpdiyConfig& metalioEInk4PlusEpdiyConfig() {
   static EpdiyConfig config = [] {
     my_waveform_init();  // must precede epd_hl_init()
-    return EpdiyConfig{&kBoard, &E0470A14_AF, &MY_WAVEFORM, EPD_LUT_1K, 1200, 25};
+    return EpdiyConfig{&kBoard, &E0470A14_AF, &MY_WAVEFORM, EPD_LUT_1K, 1200, 25, true};
   }();
   return config;
 }

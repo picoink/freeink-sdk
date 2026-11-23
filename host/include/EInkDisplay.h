@@ -18,6 +18,7 @@ class EInkDisplay {
   void displayBuffer(RefreshMode mode = FAST_REFRESH, bool = false);
   void displayBufferAsync(RefreshMode mode = FAST_REFRESH);
   bool refreshBusy();
+  bool lastRefreshSucceeded() const { return !freeink::host::fault("display"); }
   void waitRefreshComplete();
   bool supportsAsyncRefresh() const { return true; }
   void deepSleep() {}
