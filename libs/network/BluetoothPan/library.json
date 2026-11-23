@@ -1,0 +1,7 @@
+{
+  "name": "BluetoothPan",
+  "version": "1.0.0",
+  "description": "Capability-gated Bluetooth Classic PAN client for FreeInk",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}

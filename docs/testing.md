@@ -233,3 +233,13 @@ available to other FreeInk consumers. The desktop adapter follows the same edge
 contract and now makes `FsFile` move-only, matching SdFat's production ownership.
 Run `libs/hardware/InputManager/test/host/run_async.sh` as well as the input suites
 above; the desktop `host_input` test covers timestamps, release and overflow.
+
+## Bluetooth PAN
+
+```sh
+python3 libs/network/BluetoothPan/test/host/run.py
+```
+
+Checks capability gating independently of radio initialization: Classic hardware,
+feature opt-in, Bluedroid and PAN are all required. BLE-only, disabled and host
+builds return false. Hardware pairing and network access require a real device.
