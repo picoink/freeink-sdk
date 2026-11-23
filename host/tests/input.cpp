@@ -10,6 +10,7 @@ int main() {
   InputManager input;
   input.beginAsync();
   uint8_t key;
+  InputManager::KeyEvent edge;
   bool held;
   for (const auto device : {K::TouchPrevious, K::TouchNext, K::Boot, K::VolumeUp, K::VolumeDown, K::Power}) {
     const auto logical = device == K::Boot                                       ? InputManager::BTN_CONFIRM
@@ -20,8 +21,13 @@ int main() {
     input.hostDeviceKey(device, true, S::Desktop);
     assert(input.hostHeld(device) && input.isPressed(logical));
     assert(input.popPress(key) && key == logical && !input.popPress(key));
+    assert(input.popKeyEvent(edge) && edge.button == logical && edge.pressed);
+    const uint32_t pressedAt = edge.timestamp;
+    runtime().timeOffset += 25;
     input.hostDeviceKey(device, false, S::Desktop);
     assert(!input.isPressed(logical));
+    assert(input.popKeyEvent(edge) && edge.button == logical && !edge.pressed);
+    assert(uint32_t(edge.timestamp - pressedAt) >= 25 && !input.popKeyEvent(edge));
   }
   // Both physical devices and independent clients contribute to the same level.
   input.hostDeviceKey(K::VolumeUp, true, S::Desktop);
@@ -51,6 +57,16 @@ int main() {
   input.hostDeviceKey(K::TouchHome, false, S::Desktop);
   input.beginAsync();
   assert(!input.popHomeKey(held));
+  assert(!input.popKeyEvent(edge));
+  // Overflow cancels an ambiguous gesture; it must never become a double click.
+  for (int i = 0; i < 20; ++i) {
+    input.hostDeviceKey(K::Boot, true, S::Desktop);
+    input.hostDeviceKey(K::Boot, false, S::Desktop);
+  }
+  assert(input.popKeyEvent(edge) && edge.button == 255 && !input.popKeyEvent(edge));
+  input.hostDeviceKey(K::Boot, true, S::Desktop);
+  assert(input.popKeyEvent(edge) && edge.button == InputManager::BTN_CONFIRM && edge.pressed);
+  input.hostDeviceKey(K::Boot, false, S::Desktop);
   input.hostPowerLevel(S::Desktop, true);
   input.hostPowerLevel(S::Protocol, true);
   input.hostCancel(S::Desktop);

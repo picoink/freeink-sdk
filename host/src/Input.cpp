@@ -17,6 +17,7 @@ bool InputManager::endAsync() {
   std::lock_guard<std::mutex> lock(mutex_);
   running_ = homeArmed_ = false;
   keys_.clear();
+  edges_.clear(); edgeOverflow_ = false;
   homes_.clear();
   taps_.clear();
   swipes_.clear();
@@ -64,12 +65,26 @@ void InputManager::updateButtonsLocked() {
   if (held & bit(HostKey::Power)) logical |= 1u << BTN_POWER;
   for (unsigned key = 0; key < 7; ++key) {
     const bool down = logical & (1u << key);
+    if (down != pressed_[key] && running_) {
+      if (edges_.size() < 32) edges_.push_back({uint32_t(millis()), uint8_t(key), down});
+      else edgeOverflow_ = true;
+    }
     if (down && !pressed_[key]) {
       if (running_ && keys_.size() < 32) keys_.push_back(key);
       if (key == BTN_POWER) powerAt_ = millis();
     }
     pressed_[key] = down;
   }
+}
+bool InputManager::popKeyEvent(KeyEvent& event) {
+  HostScope host;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (edgeOverflow_) {
+    edges_.clear(); edgeOverflow_ = false;
+    event = {uint32_t(millis()), 255, false}; return true;
+  }
+  if (edges_.empty()) return false;
+  event = edges_.front(); edges_.pop_front(); return true;
 }
 void InputManager::hostDeviceKey(HostKey key, bool down, HostSource source) {
   HostScope host;

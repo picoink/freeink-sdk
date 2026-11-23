@@ -18,6 +18,10 @@ struct FsBlockDeviceInterface {
 class FsFile {
  public:
   FsFile() = default;
+  FsFile(const FsFile&) = delete;
+  FsFile& operator=(const FsFile&) = delete;
+  FsFile(FsFile&&) = default;
+  FsFile& operator=(FsFile&&) = default;
   explicit operator bool() const;
   bool isDirectory() const;
   void close();

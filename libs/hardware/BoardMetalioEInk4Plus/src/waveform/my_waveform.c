@@ -13,6 +13,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include <esp_log.h>
 #include <esp_heap_caps.h>
@@ -42,11 +43,11 @@ static inline int lut_get(const uint8_t (*data)[16][4], int f, int to, int from)
 }
 
 // 源 DU 只认目标 0/15；中间灰 50/50，暗→黑、亮→白
-static uint8_t s_du_data[MY_FULL_DU_FRAMES][16][4];
-static const EpdWaveformPhases s_du_phases = {
+static uint8_t (*s_du_data)[16][4];
+static EpdWaveformPhases s_du_phases = {
     .phases = MY_FULL_DU_FRAMES,
     .phase_times = NULL,
-    .luts = (const uint8_t*)&s_du_data[0],
+    .luts = NULL,
 };
 static const EpdWaveformPhases* s_du_ranges[] = { &s_du_phases };
 static const EpdWaveformMode s_du_mode = {
@@ -56,7 +57,7 @@ static const EpdWaveformMode s_du_mode = {
 };
 
 static void complete_du_build(void) {
-    memset(s_du_data, 0, sizeof(s_du_data));
+    memset(s_du_data, 0, (MY_FULL_DU_FRAMES * 16 * 4));
     for (int to = 0; to < 16; to++) {
         const int to_bin = to < 8 ? 0 : 15;
         for (int from = 0; from < 16; from++) {
@@ -94,17 +95,17 @@ static void gl16_white_tick(uint8_t (*data)[16][4], int frames) {
     lut_or(data, tick, 15, 15, 2);
 }
 
-static uint8_t s_gc16_data[MY_FULL_GC16_FRAMES][16][4];
-static uint8_t s_gl16_data[MY_FULL_GL16_FRAMES][16][4];
-static const EpdWaveformPhases s_gc16_phases = {
+static uint8_t (*s_gc16_data)[16][4];
+static uint8_t (*s_gl16_data)[16][4];
+static EpdWaveformPhases s_gc16_phases = {
     .phases = MY_GC16_FRAMES,
     .phase_times = NULL,
-    .luts = (const uint8_t*)&s_gc16_data[0],
+    .luts = NULL,
 };
-static const EpdWaveformPhases s_gl16_phases = {
+static EpdWaveformPhases s_gl16_phases = {
     .phases = MY_GL16_FRAMES,
     .phase_times = NULL,
-    .luts = (const uint8_t*)&s_gl16_data[0],
+    .luts = NULL,
 };
 static const EpdWaveformPhases* s_gc16_ranges[] = { &s_gc16_phases };
 static const EpdWaveformPhases* s_gl16_ranges[] = { &s_gl16_phases };
@@ -156,21 +157,23 @@ const EpdWaveform* my_waveform_fast(void) {
 
 static void short_du_build(void);
 static void wipe_build(void);
+static void allocate_waveform_data(void);
 
 void my_waveform_init(void) {
     static bool initialized;
     if (initialized) return;
+    allocate_waveform_data();
     initialized = true;
     complete_du_build();
     short_du_build();
     wipe_build();
-    memcpy(s_gc16_data, my_gc_25_0_data, sizeof(s_gc16_data));
-    memcpy(s_gl16_data, my_gl_25_0_data, sizeof(s_gl16_data));
+    memcpy(s_gc16_data, my_gc_25_0_data, (MY_FULL_GC16_FRAMES * 16 * 4));
+    memcpy(s_gl16_data, my_gl_25_0_data, (MY_FULL_GL16_FRAMES * 16 * 4));
     gl16_white_tick(s_gl16_data, MY_GL16_FRAMES);
 
     // Build once in PSRAM. Switching profiles never modifies an active LUT.
     uint8_t (*data)[16][4] = heap_caps_malloc(
-        sizeof(s_gc16_data) + sizeof(s_gl16_data), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        (MY_FULL_GC16_FRAMES * 16 * 4) + (MY_FULL_GL16_FRAMES * 16 * 4), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!data) {
         ESP_LOGW(TAG, "fast waveform allocation failed; balanced retained");
         return;
@@ -201,9 +204,9 @@ static const EpdWaveform s_gray8_waveform = {
 const EpdWaveform* my_waveform_gray8(void) { return &s_gray8_waveform; }
 
 // 黑白转换推黑七相、推白八相；黑→黑在末尾四相补黑，其余同色保持。
-static uint8_t s_short_du_data[8][16][4];
-static const EpdWaveformPhases s_short_du_phases = {
-    .phases=8, .phase_times=NULL, .luts=(const uint8_t*)s_short_du_data,
+static uint8_t (*s_short_du_data)[16][4];
+static EpdWaveformPhases s_short_du_phases = {
+    .phases=8, .phase_times=NULL, .luts=NULL,
 };
 static const EpdWaveformPhases* s_short_du_ranges[] = { &s_short_du_phases };
 static const EpdWaveformMode s_short_du_mode = { .type=1, .temp_ranges=1, .range_data=s_short_du_ranges };
@@ -213,9 +216,9 @@ static const EpdWaveform s_short_du_waveform = {
 };
 const EpdWaveform* my_waveform_short_du(void) { return &s_short_du_waveform; }
 
-static uint8_t s_fast_du_data[14][16][4];
-static const EpdWaveformPhases s_fast_du_phases = {
-    .phases=14, .phase_times=NULL, .luts=(const uint8_t*)s_fast_du_data,
+static uint8_t (*s_fast_du_data)[16][4];
+static EpdWaveformPhases s_fast_du_phases = {
+    .phases=14, .phase_times=NULL, .luts=NULL,
 };
 static const EpdWaveformPhases* s_fast_du_ranges[] = { &s_fast_du_phases };
 static const EpdWaveformMode s_fast_du_mode = {
@@ -273,7 +276,7 @@ const EpdWaveform* my_waveform_wipe_gl(int profile) {
     memset(data[slot],0,(erase+gl->phases)*16*4);
     for(int to=0;to<16;++to) for(int old=0;old<16;++old) {
         for(int f=0;f<erase;++f)
-            lut_or(data[slot],f,to,old,lut_get(slot>=2 ? s_short_du_data : my_du_25_0_data,f,15,old));
+            lut_or(data[slot],f,to,old,lut_get(slot>=2 ? (const uint8_t (*)[16][4])s_short_du_data : my_du_25_0_data,f,15,old));
         for(int f=0;f<gl->phases;++f) {
             const int action=(gl->luts[(f*16+to)*4+3])&3; // source white (15)
             lut_or(data[slot],erase+f,to,old,action);
@@ -322,4 +325,23 @@ static void short_du_build(void) {
     }
     for (int f=4;f<8;++f) lut_or(s_short_du_data,f,0,0,1);
     for (int f=10;f<14;++f) lut_or(s_fast_du_data,f,0,0,1);
+}
+
+// Generated waveform tables are read by task-side LUT builders, never DMA.
+static void allocate_waveform_data(void) {
+    s_du_data = heap_caps_calloc(MY_FULL_DU_FRAMES, 16 * 4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_du_data) { ESP_LOGE(TAG, "waveform PSRAM exhausted"); abort(); }
+    s_du_phases.luts = (const uint8_t*)s_du_data;
+    s_gc16_data = heap_caps_calloc(MY_FULL_GC16_FRAMES, 16 * 4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_gc16_data) { ESP_LOGE(TAG, "waveform PSRAM exhausted"); abort(); }
+    s_gc16_phases.luts = (const uint8_t*)s_gc16_data;
+    s_gl16_data = heap_caps_calloc(MY_FULL_GL16_FRAMES, 16 * 4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_gl16_data) { ESP_LOGE(TAG, "waveform PSRAM exhausted"); abort(); }
+    s_gl16_phases.luts = (const uint8_t*)s_gl16_data;
+    s_short_du_data = heap_caps_calloc(8, 16 * 4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_short_du_data) { ESP_LOGE(TAG, "waveform PSRAM exhausted"); abort(); }
+    s_short_du_phases.luts = (const uint8_t*)s_short_du_data;
+    s_fast_du_data = heap_caps_calloc(14, 16 * 4, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!s_fast_du_data) { ESP_LOGE(TAG, "waveform PSRAM exhausted"); abort(); }
+    s_fast_du_phases.luts = (const uint8_t*)s_fast_du_data;
 }
