@@ -923,7 +923,33 @@ public:
   bool handlerOverflowed() const { return handlerOverflowed_; }
   ActionEvent lastEvent() const { return lastEvent_; }
 
+  // Opt in to publishing hit regions only after a successful panel update.
+  // One composed frame may be pending; callers must settle it before repaint.
+  ActionEvent renderDeferred() {
+    deferredPresentation_ = true;
+    if (presentationPending_) return {};
+    return render();
+  }
+  bool presentationPending() const { return presentationPending_; }
+  bool inputReady() const {
+    return !deferredPresentation_ || (!presentationPending_ && !invalidated_);
+  }
+  uint32_t cancelledInputs() const { return cancelledInputs_; }
+  void cancelInput() { ++cancelledInputs_; }
+  void finishPresentation(bool success) {
+    if (!presentationPending_) return;
+    presentationPending_ = false;
+    if (success) {
+      publishInteractions();
+#ifdef FREEINK_HOST
+      freeink::host::commitHitRegions();
+#endif
+    }
+    else invalidate(lastRenderHint_);
+  }
+
   ActionEvent render(const InputSnapshot &input = InputSnapshot{}) {
+    if (presentationPending_) return {};
 #ifdef FREEINK_HOST
     freeink::host::beginFrame();
     freeink::host::runtime().orientation = static_cast<int>(device_.orientation);
@@ -953,14 +979,8 @@ public:
     if (screen_)
       screen_(screen, screenUser_);
     lastEvent_ = frame.finish();
-    interactions_.publish();
-#ifdef FREEINK_HOST
-    for (size_t i = 0; i < interactions_.publishedCount(); ++i) {
-      const auto& h = interactions_.publishedData()[i];
-      freeink::host::hitPublished(h.rect.x, h.rect.y, h.rect.width, h.rect.height,
-                                h.action, h.value, h.state);
-    }
-#endif
+    if (deferredPresentation_) presentationPending_ = true;
+    else publishInteractions();
     if (lastEvent_) {
       dispatch(lastEvent_);
       invalidate(RefreshHint::Fast);
@@ -986,6 +1006,7 @@ public:
   // remaining queued taps route against the old screen — same as taps landing
   // just before a transition).
   ActionEvent route(const InputSnapshot &input) {
+    if (!inputReady()) { ++cancelledInputs_; return {}; }
     // Reads the last-published table (see render()'s beginPublishCycle()/
     // publish()), never one a concurrent render is mid-rebuilding.
     lastEvent_ = interactions_.routePublished(input);
@@ -1023,6 +1044,16 @@ public:
   }
 
 private:
+  void publishInteractions() {
+    interactions_.publish();
+#ifdef FREEINK_HOST
+    for (size_t i = 0; i < interactions_.publishedCount(); ++i) {
+      const auto& h = interactions_.publishedData()[i];
+      freeink::host::hitPublished(h.rect.x, h.rect.y, h.rect.width, h.rect.height,
+                                h.action, h.value, h.state);
+    }
+#endif
+  }
   struct Handler {
     ActionId action = NO_ACTION;
     ActionHandler handler = nullptr;
@@ -1053,6 +1084,8 @@ private:
   size_t handlerCount_ = 0;
   bool handlerOverflowed_ = false;
   bool invalidated_ = true;
+  bool deferredPresentation_ = false, presentationPending_ = false;
+  uint32_t cancelledInputs_ = 0;
   RefreshHint refreshHint_ = RefreshHint::Full;
   RefreshHint lastRenderHint_ = RefreshHint::None;
   ActionEvent lastEvent_{};

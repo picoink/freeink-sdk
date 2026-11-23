@@ -5266,6 +5266,40 @@ void testFreeInkAppDispatchesScreenActions() {
   CHECK(app.refreshHint() == RefreshHint::Fast);
 }
 
+void testDeferredPresentation() {
+  FakeDrawTarget draw;
+  DeviceContext device{200, 120};
+  AppTestState state;
+  FreeInkApp<8, 4> app(draw, device);
+  app.setScreen(appTestScreen, &state);
+  app.on(ActionBack, appTestHandler, &state);
+  InputSnapshot tap; tap.touchReleased = true; tap.touchX = 150; tap.touchY = 100;
+  app.renderDeferred();
+  CHECK(app.presentationPending());
+  CHECK(!app.route(tap));
+  CHECK_EQ(state.handled, 0);
+  app.finishPresentation(false);
+  CHECK(app.invalidated());
+  CHECK(app.refreshHint() == RefreshHint::Full);
+  CHECK(!app.route(tap));
+  app.renderDeferred();
+  app.finishPresentation(true);
+  CHECK(app.inputReady());
+  CHECK(app.route(tap));
+  CHECK_EQ(state.handled, 1);
+  // A second queued tap cannot activate controls against already changed state.
+  CHECK(!app.route(tap));
+  CHECK_EQ(state.handled, 1);
+  CHECK_EQ(app.cancelledInputs(), 3u);
+  app.renderDeferred();
+  // Navigation during an in-flight frame must still repaint after completion.
+  app.setScreen(appTestScreen, &state);
+  app.finishPresentation(true);
+  CHECK(app.invalidated() && !app.inputReady());
+  app.renderDeferred(); app.finishPresentation(true);
+  CHECK(app.inputReady());
+}
+
 void noopHandler(const ActionEvent&, void*) {}
 
 void testFreeInkAppHandlerOverflowFlag() {
@@ -6158,6 +6192,7 @@ int main() {
   testPopupAutoSizeAndAlignment();
   testScreenAnchoredLayout();
   testFreeInkAppDispatchesScreenActions();
+  testDeferredPresentation();
   testFreeInkAppHandlerOverflowFlag();
   testFreeInkAppSharedThemeRefFollowsAtomicSwap();
   testTextArea();

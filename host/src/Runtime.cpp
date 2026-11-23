@@ -45,6 +45,12 @@ void hitPublished(int x, int y, int w, int h, int action, int value, int state) 
   HostScope scope;
   runtime().drawingHits.push_back({x, y, w, h, action, value, state});
 }
+void commitHitRegions() {
+  HostScope scope;
+  auto& r = runtime();
+  std::lock_guard<std::mutex> lock(r.frameMutex);
+  r.frame.hits = r.drawingHits;
+}
 void publishFrame(const uint8_t* bits, int width, int height) {
   HostScope scope;
   auto& r = runtime();

@@ -70,6 +70,7 @@ uint64_t wallMs();
 void pauseMs(uint64_t ms);
 void beginFrame();
 void textDrawn(int x, int y, int w, int h, const char* text);
+void commitHitRegions();
 void hitPublished(int x, int y, int w, int h, int action, int value, int state);
 void publishFrame(const uint8_t* bits, int width, int height);
 Frame snapshot();
