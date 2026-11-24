@@ -59,20 +59,26 @@ def export_libraries(core, output):
     header = "bt/host/bluedroid/api/include/api"
     shutil.copytree(idf / "components" / header, chip / "include" / header, dirs_exist_ok=True)
     controller = idf / "components/bt/controller/lib_esp32s31/esp32s31-bt-lib"
-    for archive in ("libbredr_app.a", "libbtdm_common.a"):
+    for archive in ("libbredr_app.a", "libble_app.a", "libbtdm_common.a"):
         shutil.copy2(controller / archive, chip / "lib" / archive)
     script = chip / "pioarduino-build.py"
-    text = script.read_text().replace('"-lble_app"', '"-lbredr_app"')
+    text = script.read_text()
+    # The hybrid exporter may already contain the Classic archive. Retain both
+    # controller halves for BTDM; never convert BLE linkage into Classic-only.
+    if '"-lbredr_app"' not in text:
+        text = text.replace('"-lble_app"', '"-lble_app", "-lbredr_app"')
+    if '"-lble_app"' not in text:
+        text = text.replace('"-lbredr_app"', '"-lbredr_app", "-lble_app"')
     text = text.replace('        "-Wl,--wrap=log_printf",\n', '')
     text += '\n# Export the enabled Classic Bluetooth public API.\n'
     text += f'env.AppendUnique(CPPPATH=[join(FRAMEWORK_SDK_DIR, "esp32s31", "include", "{header}")])\n'
     script.write_text(text)
     config = (chip / "qio_opi/include/sdkconfig.h").read_text()
-    for symbol in ("BT_BLUEDROID_ENABLED", "BT_CLASSIC_ENABLED", "BT_PAN_ENABLED", "TINYUSB_MSC_ENABLED"):
+    for symbol in ("BT_BLUEDROID_ENABLED", "BT_CLASSIC_ENABLED", "BT_PAN_ENABLED", "BT_BLE_ENABLED", "BTDM_CTRL_MODE_BTDM", "BT_GATTC_ENABLE", "TINYUSB_MSC_ENABLED"):
         if f"#define CONFIG_{symbol} 1" not in config:
             raise RuntimeError(f"Missing CONFIG_{symbol}; refusing to export incomplete libraries")
     metadata = json.loads((stage / "package.json").read_text())
-    metadata["version"] = "6.1.0+freeink.pan.2"
+    metadata["version"] = "6.1.0+freeink.pan.hid.1"
     (stage / "package.json").write_text(json.dumps(metadata, indent=2) + "\n")
     (stage / "freeink-pan.json").write_text(json.dumps({
         "idf_base": IDF_COMMIT, "pan_source": "ad20ded62a2d67a26e501fdc1905f43ba7ad6c81",

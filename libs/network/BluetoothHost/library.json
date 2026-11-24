@@ -1,0 +1,7 @@
+{
+  "name": "BluetoothHost",
+  "version": "1.0.0",
+  "description": "Shared Bluedroid/controller ownership for Classic PAN and BLE HID profiles",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"]
+}

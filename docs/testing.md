@@ -132,6 +132,7 @@ invalidation, and a null-pointer safety check on `Gsub::LigatureGlyphId`.
 
 ```sh
 sh libs/network/BleKeyboardHost/test/host/run.sh
+sh libs/network/BleKeyboardHost/test/bluedroid/run.sh
 ```
 
 Compiles `BleKeyboardHost` with `FREEINK_CAP_BLE_HID_HOST=1` against a fake
@@ -139,6 +140,12 @@ NimBLE and FreeRTOS layer, with the connection task on a real thread. Covers
 report decode into key events, auto-reconnect, scanning and teardown order.
 The fake has no radio, so pairing, link timing and memory use still need a
 device.
+
+The Bluedroid suite drives asynchronous GATT discovery, security, report
+subscription and input. It covers scan/open teardown races, timeout cancellation,
+notification flooding and retrying the final host release while retaining PAN.
+The PAN suite also checks both lease-release orders and shared-host failures.
+Neither suite establishes a radio connection.
 
 ## Frontlight driver
 

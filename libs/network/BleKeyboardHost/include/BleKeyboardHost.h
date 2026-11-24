@@ -6,18 +6,16 @@
 // role) and exposes translated key events (printable chars + a SpecialKey enum)
 // plus scan/pair/connect controls for a settings UI. One peripheral at a time.
 //
-// Capability-gated: the real NimBLE implementation compiles only when
-// FREEINK_CAP_BLE_HID_HOST is set (and the firmware adds NimBLE-Arduino to its
-// lib_deps); otherwise every method links a stub so callers need no #ifdefs and
-// no BLE code is pulled in. This header is deliberately NimBLE-free so consumers
-// (and host builds) never include the BLE stack just to see the API.
+// Set FREEINK_CAP_BLE_HID_HOST to enable a backend. NimBLE targets depend on
+// NimBLE-Arduino; FREEINK_BLE_BLUEDROID selects the IDF BLE 5 central and shares
+// its host/controller with PAN through BluetoothHost. Both decode the same HID
+// reports. Classic-only HID peripherals are not supported.
 //
-// Memory: all storage is fixed-capacity (no std::vector / heap in the hot path).
-// BLE callbacks run on the NimBLE host task and hand data to the app through a
-// small spinlock-guarded ring; drain it from the main loop with popKey().
-//
-// BLE-only — the ESP32-C3/S3 has no Bluetooth Classic radio, so Classic-only HID
-// peripherals cannot connect.
+// The Bluedroid backend has one service-task owner for lifecycle, commands,
+// status and poll(). Its callbacks copy bounded events; poll() never waits for
+// discovery or pairing. popKey()/popRawButton() are safe cross-task consumers.
+// Keep that owner at normal CPU frequency during begin/end. Application headers
+// do not depend on either Bluetooth stack.
 
 #include <Arduino.h>
 #include <stddef.h>
@@ -121,7 +119,8 @@ class BleKeyboardHost {
   // capability is compiled out.
   bool begin(const char* hostName = "FreeInk");
 
-  // Fully tear down the BLE stack: stop scanning, drop the link, delete the
+  // Release this HID client and its radio lease (PAN may keep the host alive).
+  // NimBLE fully tears down its BLE stack: stop scanning, drop the link, delete the
   // connection task, and NimBLEDevice::deinit() so the NimBLE host + controller
   // RAM (tens of KB) is returned to the heap. Use this — not disconnect() — when
   // the user turns Bluetooth off, so memory-hungry work (e.g. EPUB inflate) can
@@ -133,7 +132,7 @@ class BleKeyboardHost {
   // and for the link to finish closing. When that takes longer, nothing is
   // deleted under NimBLE: end() returns false, isStopping() stays true and a
   // later end() carries on from there. end(0) never waits. Safe to call from
-  // more than one task: while one end() runs, another returns false at once
+  // more than one task on NimBLE: while one end() runs, another returns false at once
   // (still stopping) instead of tearing down alongside it.
   bool end(uint32_t timeoutMs = 1000);
 
@@ -141,11 +140,11 @@ class BleKeyboardHost {
   // refused meanwhile.
   bool isStopping() const;
 
-  // Pump per main-loop iteration: drives auto-reconnect and key auto-repeat.
+  // Pump on the service owner: drives discovery, bounded reconnect and stale-key release.
   // Cheap; never blocks.
   void poll();
 
-  // True while the NimBLE stack is initialized (between a successful begin() and
+  // True while this HID client is initialized (between a successful begin() and
   // end()). Lets the app gate CPU-frequency and lifecycle decisions on whether BLE
   // is actually resident, independent of the user's on/off preference.
   bool isRunning() const { return begun_; }

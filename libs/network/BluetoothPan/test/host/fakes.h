@@ -12,6 +12,7 @@
 #define CONFIG_BT_BLUEDROID_ENABLED 1
 #define CONFIG_BT_CLASSIC_ENABLED 1
 #define CONFIG_BT_PAN_ENABLED 1
+#define CONFIG_BT_BLE_ENABLED 1
 #define portMUX_INITIALIZER_UNLOCKED 0
 #define portENTER_CRITICAL(x) (void)(x)
 #define portEXIT_CRITICAL(x) (void)(x)
@@ -22,7 +23,8 @@ inline unsigned now = 0, ticks = 0, starts = 0, stops = 0, nets = 0,
 inline unsigned confirms = 0, rejects = 0, bonds = 0, opens = 0,
                 savedWrites = 0;
 inline bool taskOk = true, initOk = true, nvsOk = true, profile = false;
-inline int bluedroid = 0;
+inline int bluedroid = 0, controller = 0, lastMode = 0;
+inline bool stopOk=true,hostEnableOk=true;
 inline std::vector<uint8_t> saved, transmitted, received;
 inline std::string name;
 inline std::function<void()> onWait;
@@ -105,14 +107,16 @@ inline NetworkClass Network;
 using esp_err_t = int;
 constexpr int ESP_OK = 0, ESP_FAIL = -1, ESP_ERR_INVALID_ARG = -2,
               ESP_ERR_INVALID_STATE = -3;
-constexpr int BT_MODE_CLASSIC_BT = 1;
-inline bool btStartMode(int) {
-  ++fake::starts;
+constexpr int BT_MODE_CLASSIC_BT = 1, BT_MODE_BTDM = 2;
+constexpr int ESP_BT_CONTROLLER_STATUS_IDLE=0, ESP_BLUEDROID_STATUS_UNINITIALIZED=0;
+inline int esp_bt_controller_get_status(){return fake::controller;}
+inline bool btStartMode(int mode) {
+  ++fake::starts;fake::lastMode=mode;fake::controller=fake::initOk?2:0;
   return fake::initOk;
 }
 inline bool btStop() {
   ++fake::stops;
-  return true;
+  if(!fake::stopOk)return false;fake::controller=0;return true;
 }
 constexpr int ESP_BLUEDROID_STATUS_ENABLED = 2,
               ESP_BLUEDROID_STATUS_INITIALIZED = 1;
@@ -121,6 +125,7 @@ inline int esp_bluedroid_init() {
   return 0;
 }
 inline int esp_bluedroid_enable() {
+  if(!fake::hostEnableOk)return ESP_FAIL;
   fake::bluedroid = 2;
   return 0;
 }

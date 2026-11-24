@@ -60,16 +60,17 @@ sufficient: the capability API also checks the host stack and PAN configuration.
 
 The hybrid exporter does not export newly enabled public headers or switch its
 imported controller archives/link flags. The script explicitly exports Bluedroid
-headers, `libbredr_app.a` and `libbtdm_common.a`, replaces the BLE archive, and
+headers and the three BTDM archives (`libbredr_app.a`, `libble_app.a`,
+`libbtdm_common.a`), retains both controller link flags, and
 removes the NimBLE `log_printf` wrapper. Generated memory/section scripts and
 per-chip `sdkconfig` remain paired with the rebuilt libraries. A second Arduino
-link deliberately references PAN, Classic controller and USB MSC to check the
+link deliberately references PAN, the dual-mode controller, BLE GAP/GATTC and USB MSC to check the
 exported package. `freeink-pan.json` records patch/config hashes in the output.
 Bluetooth host allocations prefer PSRAM, preserving internal memory for the
 controller, display and network buffers. Host task stacks remain internal.
 
 This is compilation evidence only. Pairing, BNEP traffic, DHCP, radio teardown,
-RTC and iPhone behavior must be validated on hardware separately.
+RTC, simultaneous HID/PAN and iPhone behavior must be validated on hardware separately.
 
 Source-reconstruction regression tests run offline:
 
