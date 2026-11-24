@@ -175,21 +175,24 @@ book::ImageBackend::Result ImageAccelerator::decode(book::BookSource& source,con
       image.width>info.width || image.height>info.height) return declined(Reason::Dimensions);
   if (info.progressive) {
     const auto bytes=ProgressiveJpeg::storeBytes(info.width,info.height);
-    if (!room(bytes,bytes,work_.budget)) return declined(Reason::Budget);
+    if (!room(bytes,bytes,work_.budget)) {stats_.reason=Reason::Budget;return Result::OutOfMemory;}
     ProgressiveContext c; c.work=work_;
     c.scaler.srcW=info.width; c.scaler.srcH=info.height;
     c.scaler.dstW=image.width; c.scaler.dstH=image.height; c.scaler.rowFn=rowFn; c.scaler.user=user;
-    if (!book::initScaler(c.scaler,scratch)) return declined(Reason::Allocation);
+    if (!book::initScaler(c.scaler,scratch)) {stats_.reason=Reason::Allocation;return Result::OutOfMemory;}
     const auto mark=scratch.mark();
     if (c.reader.open(source,entry,scratch)!=book::BookStatus::Ok) return declined(Reason::Format);
     ProgressiveJpeg decoder;
     auto started=micros();
-    if (decoder.begin(ProgressiveContext::read,&c)!=ProgressiveJpeg::Status::Ok) return declined(Reason::Format);
+    const auto opened=decoder.begin(ProgressiveContext::read,&c);
+    if(opened==ProgressiveJpeg::Status::OutOfMemory){stats_.reason=Reason::Allocation;return Result::OutOfMemory;}
+    if (opened!=ProgressiveJpeg::Status::Ok) return declined(Reason::Format);
     scratch.release(mark);
     if (c.reader.open(source,entry,scratch)!=book::BookStatus::Ok) return declined(Reason::Format);
     const auto result=decoder.decode(ProgressiveContext::read,&c,ProgressiveContext::row,&c);
     stats_.decode_us+=uint32_t(micros()-started); stats_.peak_bytes=std::max<uint32_t>(stats_.peak_bytes,bytes);
     if (!proceed() || result==ProgressiveJpeg::Status::Stopped || c.scaler.stopped) return Result::Stopped;
+    if(result==ProgressiveJpeg::Status::OutOfMemory){stats_.reason=Reason::Allocation;return Result::OutOfMemory;}
     if (result!=ProgressiveJpeg::Status::Ok) return declined(Reason::Format);
     ++stats_.progressive; return Result::Complete;
   }

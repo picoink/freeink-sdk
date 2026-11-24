@@ -69,6 +69,23 @@ exported package. `freeink-pan.json` records patch/config hashes in the output.
 Bluetooth host allocations prefer PSRAM, preserving internal memory for the
 controller, display and network buffers. Host task stacks remain internal.
 
+The bounded profile admits one Classic phone connection and one BLE page turner.
+BLE buffer counts are limited without reducing packet sizes. USB includes one
+CDC port and MSC; unused device classes and the host controller are disabled.
+The builder patches TinyUSB's host switch and class counts together, and checks
+the exported configuration. Rebuild this package when updating the profile.
+The SDK checks internal and DMA-capable heap headroom before the first radio
+initialization, because a failed controller startup cannot reliably unwind all
+vendor allocations. This admission test is separate from PSRAM capacity.
+
+Metalio can place CPU-read display line queues in PSRAM with
+`EPD_LINE_QUEUE_PSRAM=1`. DMA output buffers remain internal. This option requires
+the firmware to link both flash-cache guard wrappers in `FlashAccess.cpp` and
+enable `coordinateFlashAccess()` after boot peripherals initialize. The display
+worker releases its barrier on completion, so NVS/radio flash writes waiting on
+the main task cannot deadlock the refresh. Test the final firmware on hardware;
+these settings are not a substitute for simultaneous radio/refresh validation.
+
 This is compilation evidence only. Pairing, BNEP traffic, DHCP, radio teardown,
 RTC, simultaneous HID/PAN and iPhone behavior must be validated on hardware separately.
 

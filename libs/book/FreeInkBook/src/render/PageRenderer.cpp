@@ -263,6 +263,7 @@ BookStatus PageRenderer::renderImages(const Page& page, BookSource& source,
     const BookStatus status =
         ImageRenderer::render(source, zip, image, scratch, ImageBlit::onRow, &blit, backend);
     scratch.release(marked);
+    if(status==BookStatus::OutOfMemory)return status;
     // Unsupported formats leave their reserved space blank; real I/O errors
     // are reported (with the rest of the page still drawn).
     if (status != BookStatus::Ok && status != BookStatus::Unsupported) worst = status;

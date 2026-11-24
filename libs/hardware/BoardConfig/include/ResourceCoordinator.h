@@ -9,7 +9,7 @@ namespace freeink::resources {
 // acknowledge a safe point. No task is suspended while holding an unknown lock.
 class Coordinator {
  public:
-  enum class Client : uint8_t {Content,ForegroundIo,NetworkStorage,Count};
+  enum class Client : uint8_t {Content,ForegroundIo,NetworkStorage,Flash,Count};
   enum class Barrier : uint8_t {Display=1,Usb=2,Sleep=4};
   static Coordinator& get() {
     alignas(Coordinator) static unsigned char storage[sizeof(Coordinator)];
@@ -25,9 +25,16 @@ class Coordinator {
   bool begin(Client client) {
     std::lock_guard<std::mutex> lock(mutex_);auto i=size_t(client);
     if(barriers_ || active_[i]==UINT16_MAX)return false;
-    ++active_[i];return true;
+    ++active_[i];++localWork_;return true;
   }
-  void end(Client client) {std::lock_guard<std::mutex> lock(mutex_);auto i=size_t(client);if(active_[i])--active_[i];if(!active_[i])parked_[i]=false;}
+  void end(Client client) {std::lock_guard<std::mutex> lock(mutex_);auto i=size_t(client);if(active_[i]){--active_[i];if(client!=Client::Flash && localWork_)--localWork_;}if(!active_[i])parked_[i]=false;}
+  bool beginFlash() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // Already admitted work must reach its safe point even after a display
+    // request. The display still waits for that outer lease to drain/park.
+    if((barriers_&uint8_t(Barrier::Display)) && !localWork_)return false;
+    ++active_[size_t(Client::Flash)];return true;
+  }
   void park(Client client,bool value) {std::lock_guard<std::mutex> lock(mutex_);parked_[size_t(client)]=value;}
   class Lease {
    public:
@@ -44,5 +51,6 @@ class Coordinator {
   std::array<uint16_t,size_t(Client::Count)> active_{};
   std::array<bool,size_t(Client::Count)> parked_{};
   uint8_t barriers_=0;
+  inline static thread_local unsigned localWork_=0;
 };
 }

@@ -77,8 +77,20 @@ def export_libraries(core, output):
     for symbol in ("BT_BLUEDROID_ENABLED", "BT_CLASSIC_ENABLED", "BT_PAN_ENABLED", "BT_BLE_ENABLED", "BTDM_CTRL_MODE_BTDM", "BT_GATTC_ENABLE", "TINYUSB_MSC_ENABLED"):
         if f"#define CONFIG_{symbol} 1" not in config:
             raise RuntimeError(f"Missing CONFIG_{symbol}; refusing to export incomplete libraries")
+    for symbol in ("TINYUSB_HOST_ENABLED", "TINYUSB_HID_ENABLED", "TINYUSB_MIDI_ENABLED",
+                   "TINYUSB_AUDIO_ENABLED", "TINYUSB_VIDEO_ENABLED", "TINYUSB_DFU_ENABLED",
+                   "TINYUSB_DFU_RT_ENABLED", "TINYUSB_VENDOR_ENABLED", "TINYUSB_NCM_ENABLED",
+                   "BT_CTRL_ALLOW_MALLOC_FROM_SPIRAM"):
+        if f"#define CONFIG_{symbol} 1" in config:
+            raise RuntimeError(f"Unexpected CONFIG_{symbol}; resource profile does not match")
+    for symbol, value in {"BT_LE_MAX_CONNECTIONS": 1, "BT_CTRL_BR_EDR_MAX_ACL_CONN": 1,
+                          "TINYUSB_CDC_MAX_PORTS": 1, "BT_LE_MSYS_1_BLOCK_COUNT": 6,
+                          "BT_LE_MSYS_2_BLOCK_COUNT": 12, "BT_LE_ACL_BUF_COUNT": 8,
+                          "BT_LE_HCI_EVT_HI_BUF_COUNT": 12, "BT_LE_HCI_EVT_LO_BUF_COUNT": 4}.items():
+        if f"#define CONFIG_{symbol} {value}\n" not in config:
+            raise RuntimeError(f"Unexpected CONFIG_{symbol}; resource profile does not match")
     metadata = json.loads((stage / "package.json").read_text())
-    metadata["version"] = "6.1.0+freeink.pan.hid.1"
+    metadata["version"] = "6.1.0+freeink.pan.hid.2"
     (stage / "package.json").write_text(json.dumps(metadata, indent=2) + "\n")
     (stage / "freeink-pan.json").write_text(json.dumps({
         "idf_base": IDF_COMMIT, "pan_source": "ad20ded62a2d67a26e501fdc1905f43ba7ad6c81",
@@ -150,6 +162,31 @@ def main():
     component = work / "components/arduino_tinyusb"
     for filename in ("CMakeLists.txt", "Kconfig.projbuild", "include/tusb_config.h"):
         download(f"https://raw.githubusercontent.com/espressif/esp32-arduino-lib-builder/{BUILDER}/components/arduino_tinyusb/{filename}", component / filename)
+    # The upstream builder enables the entire USB host stack whenever device
+    # mode is enabled. Give the product an explicit, reproducible host opt-in.
+    kconfig = component / "Kconfig.projbuild"
+    configuration = kconfig.read_text()
+    if "config TINYUSB_HOST_ENABLED" not in configuration:
+        configuration = configuration.replace('    menu "Serial (CDC) driver"',
+            '    config TINYUSB_HOST_ENABLED\n'
+            '        bool "Enable TinyUSB host stack"\n'
+            '        default n\n'
+            '        depends on TINYUSB_ENABLED\n\n'
+            '    menu "Serial (CDC) driver"')
+        kconfig.write_text(configuration)
+    header = component / "include/tusb_config.h"
+    configuration = header.read_text().replace(
+        '#define CFG_TUH_ENABLED             CFG_TUD_ENABLED',
+        '#ifdef CONFIG_TINYUSB_HOST_ENABLED\n'
+        '#define CFG_TUH_ENABLED             CONFIG_TINYUSB_HOST_ENABLED\n'
+        '#else\n#define CFG_TUH_ENABLED             0\n#endif')
+    if 'FreeInk device-only host classes' not in configuration:
+        configuration += '\n// FreeInk device-only host classes (also used by Arduino wrappers).\n'
+        configuration += '#if !CFG_TUH_ENABLED\n'
+        for name in ('HUB', 'CDC', 'CDC_FTDI', 'CDC_CP210X', 'CDC_CH34X', 'HID', 'MSC', 'MIDI'):
+            configuration += f'#undef CFG_TUH_{name}\n#define CFG_TUH_{name} 0\n'
+        configuration += '#endif\n'
+    header.write_text(configuration)
     tinyusb = cache / "tinyusb.tar.gz"
     if not (component / "tinyusb/src/tusb.c").exists():
         download(f"https://api.github.com/repos/hathach/tinyusb/tarball/{TINYUSB}", tinyusb)

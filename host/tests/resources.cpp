@@ -14,6 +14,7 @@ int main() {
   assert(parseJson(R"({"memory":{"ram_bytes":65536,"psram_bytes":16777216}})",config).empty());
   configureResources(config);
   auto& memory=Memory::get();
+  assert(!InternalMemory::get().admitRadio() && InternalMemory::get().radioDenied()==1);
   const auto owner=memory.beginOwner(1),other=memory.beginOwner(2);
   assert(owner && other && owner!=other);
   auto* db=static_cast<unsigned char*>(memory.allocate(MiB,Category::Database,owner,Lifetime::Session));

@@ -658,6 +658,7 @@ BookStatus ImageRenderer::renderEntry(BookSource& source, const ZipEntry& entry,
     scratch.release(marked);
     if (result==ImageBackend::Result::Complete) return BookStatus::Ok;
     if (result==ImageBackend::Result::Stopped) return BookStatus::IoError;
+    if (result==ImageBackend::Result::OutOfMemory) return BookStatus::OutOfMemory;
   }
   ImageInfo info;
   BookStatus status = probeImage(source, entry, scratch, &info);

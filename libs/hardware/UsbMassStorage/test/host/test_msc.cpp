@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <USB.h>
 #include <USBMSC.h>
+#include <esp_heap_caps.h>
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -42,9 +43,12 @@ int main() {
   Disk disk;
   UsbMassStorage usb, second;
   assert(!usb.begin(nullptr));
+  heapFail=true;assert(!usb.begin(&disk) && !heapLive);heapFail=false;
   mscBeginOk = false; assert(!usb.begin(&disk) && !media); mscBeginOk = true;
+  assert(!heapLive);
   assert(usbRoute==HIGH);
   usbBeginOk = false; assert(!usb.begin(&disk) && !media); usbBeginOk = true;
+  assert(!heapLive);
   assert(usbRoute==HIGH);
   assert(usb.begin(&disk) && !second.begin(&disk));
   assert(usbRoute==(FREEINK_DEVICE_METALIO_EINK4_PLUS ? LOW : HIGH));
@@ -64,6 +68,7 @@ int main() {
   assert(usb.state() == UsbMassStorageState::IoError);
   assert(readCallback(0, 0, result.data(), 0) == -1);
   usb.end(); assert(!media && readCallback(0, 0, result.data(), 512) == -1);
+  assert(!heapLive);
   assert(usbRoute==HIGH);
   assert(usb.begin(&disk)); mounted = true;
   disk.syncOk = false;

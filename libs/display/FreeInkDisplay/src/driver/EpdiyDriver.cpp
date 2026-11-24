@@ -5,6 +5,7 @@
 #include <esp_heap_caps.h>
 #if __has_include(<ResourceMemory.h>)
 #include <ResourceMemory.h>
+#include <ResourceCoordinator.h>
 #endif
 #include <freertos/idf_additions.h>
 #if CONFIG_PM_ENABLE
@@ -14,6 +15,13 @@
 #include <cstring>
 #include <array>
 #include <epd_metrics.h>
+
+#if EPD_LINE_QUEUE_PSRAM && __has_include(<ResourceMemory.h>)
+extern "C" void* epd_allocate_line_queue(size_t bytes) {
+  return freeink::resources::allocateAligned(bytes,16,freeink::resources::Category::System,0,freeink::resources::Lifetime::System);
+}
+extern "C" void epd_release_line_queue(void* pointer) {freeink::resources::releaseAligned(pointer);}
+#endif
 
 #ifndef FREEINK_EPDIY_CONFIG
 #error \
@@ -148,6 +156,11 @@ void EpdiyDriver::deepSleep(EpdBus& bus) {
 // so the first draw clears the glass and draws from white. A board can supply
 // its white-conditioning waveform for subsequent full refreshes.
 bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
+#if __has_include(<ResourceCoordinator.h>)
+  // A foreground flash caller may be waiting for this scan. Release the
+  // barrier here, without depending on that caller returning to the UI loop.
+  struct Complete {~Complete(){resources::Coordinator::get().request(resources::Coordinator::Barrier::Display,false);}} complete;
+#endif
   // An underrun leaves unknown optical state. Stop at the hardware boundary:
   // automatic UI retries must not repeatedly clear/flash a faulty panel path.
   // Only an explicit resync (AI clean refresh) rearms this driver.

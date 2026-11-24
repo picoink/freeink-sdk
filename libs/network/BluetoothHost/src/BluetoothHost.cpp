@@ -6,6 +6,9 @@
 #include <esp_bt.h>
 #include <esp_bt_main.h>
 #include <mutex>
+#if defined(ESP_PLATFORM) && FREEINK_DEVICE_METALIO_EINK4_PLUS
+#include <InternalMemory.h>
+#endif
 namespace {
 std::mutex mutex;
 uint8_t owners = 0;
@@ -39,6 +42,9 @@ bool BluetoothHost::acquire(Profile profile) {
   if (esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_IDLE ||
       esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_UNINITIALIZED)
     return false;
+#if defined(ESP_PLATFORM) && FREEINK_DEVICE_METALIO_EINK4_PLUS
+  if(!resources::InternalMemory::get().admitRadio())return false;
+#endif
   owners = bit;
   controllerOwned = true;
 #if CONFIG_BT_CLASSIC_ENABLED && CONFIG_BT_BLE_ENABLED

@@ -5,6 +5,7 @@
 #define MALLOC_CAP_SPIRAM 4u
 #define MALLOC_CAP_DMA 8u
 #define MALLOC_CAP_DEFAULT 16u
+static inline int heap_caps_register_failed_alloc_callback(void(*)(size_t,unsigned,const char*)) {return 0;}
 static inline void* heap_caps_malloc(size_t n, unsigned c) { return host_caps_malloc(n, c); }
 static inline void* heap_caps_calloc(size_t n, size_t s, unsigned c) {
   if (s && n > SIZE_MAX / s) return 0;

@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <USB.h>
 #include <USBMSC.h>
+#include <esp_heap_caps.h>
 
 #include <algorithm>
 #include <atomic>
@@ -25,7 +26,7 @@ std::atomic<bool> gAccepting{false};
 std::atomic<UsbMassStorage*> gOwner{nullptr};
 std::atomic<FsBlockDeviceInterface*> gDev{nullptr};
 uint16_t gBlockSize = 512;
-uint8_t gSectorScratch[4096];
+uint8_t* gSectorScratch=nullptr;
 bool gEventsRegistered=false;
 
 void mountedEvent(void*,esp_event_base_t,int32_t,void*) {
@@ -156,6 +157,8 @@ bool UsbMassStorage::begin(FsBlockDeviceInterface* dev, uint16_t sectorSize) {
   std::lock_guard<std::mutex> lock(gIoMutex);
   if (_active || gOwner.load() || !dev || dev->sectorCount() == 0 ||
       (sectorSize != 512 && sectorSize != 4096)) return false;
+  gSectorScratch=static_cast<uint8_t*>(heap_caps_malloc(sectorSize,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
+  if(!gSectorScratch)return false;
   gBlockSize = sectorSize;
   routeStorage(true);
   if (!gEventsRegistered) {
@@ -176,6 +179,7 @@ bool UsbMassStorage::begin(FsBlockDeviceInterface* dev, uint16_t sectorSize) {
   gMsc.onRead(mscRead);
   gMsc.onWrite(mscWrite);
   if (!gMsc.begin(dev->sectorCount(), gBlockSize)) {
+    heap_caps_free(gSectorScratch);gSectorScratch=nullptr;
     gMsc.mediaPresent(false);
     gOwner.store(nullptr);
     gDev.store(nullptr);
@@ -184,6 +188,7 @@ bool UsbMassStorage::begin(FsBlockDeviceInterface* dev, uint16_t sectorSize) {
     return false;
   }
   if (!USB.begin()) {
+    heap_caps_free(gSectorScratch);gSectorScratch=nullptr;
     gMsc.mediaPresent(false);
     gOwner.store(nullptr);
     gDev.store(nullptr);
@@ -209,6 +214,7 @@ void UsbMassStorage::end() {
   _active = false;
   gOwner.store(nullptr);
   gDev.store(nullptr);
+  heap_caps_free(gSectorScratch);gSectorScratch=nullptr;
   // Keep the statically registered LUN and function pointers alive. Arduino's
   // end() clears them without synchronizing with TinyUSB's SCSI dispatcher.
   _state.store(UsbMassStorageState::Idle);
