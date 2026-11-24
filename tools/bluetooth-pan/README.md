@@ -78,6 +78,13 @@ The SDK checks internal and DMA-capable heap headroom before the first radio
 initialization, because a failed controller startup cannot reliably unwind all
 vendor allocations. This admission test is separate from PSRAM capacity.
 
+The certificate-bundle patch allocates callback-owned candidate certificates and
+ASN.1 nodes with `mbedtls_calloc`, including matching failure-path frees. IDF's
+original callback used libc allocation, but Mbed TLS destroys the returned chain
+with its configured allocator. Mixing these allocators corrupts the heap when
+the product installs its accounted PSRAM allocator. The exported metadata records
+this patch separately; certificate verification and cross-signed trust remain enabled.
+
 Metalio can place CPU-read display line queues in PSRAM with
 `EPD_LINE_QUEUE_PSRAM=1`. DMA output buffers remain internal. This option requires
 the firmware to link both flash-cache guard wrappers in `FlashAccess.cpp` and
@@ -85,6 +92,9 @@ enable `coordinateFlashAccess()` after boot peripherals initialize. The display
 worker releases its barrier on completion, so NVS/radio flash writes waiting on
 the main task cannot deadlock the refresh. Test the final firmware on hardware;
 these settings are not a substitute for simultaneous radio/refresh validation.
+`EPD_LCD_FULL_PHASE=1` also sizes those queues for every row in one waveform
+phase and publishes only complete phases. This prevents radio scheduling from
+starving an active scan; waveform bytes and target phase timing remain unchanged.
 
 This is compilation evidence only. Pairing, BNEP traffic, DHCP, radio teardown,
 RTC, simultaneous HID/PAN and iPhone behavior must be validated on hardware separately.
@@ -93,6 +103,7 @@ Source-reconstruction regression tests run offline:
 
 ```sh
 python3 freeink-sdk/tools/bluetooth-pan/test_source.py
+python3 freeink-sdk/tools/bluetooth-pan/test_tls_allocator.py --idf .tools/pan-platformio/packages/framework-espidf
 ```
 
 Set `FREEINK_SOURCE_GH=1` to fetch changed blobs through an already authenticated

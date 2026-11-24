@@ -49,6 +49,14 @@ def export_libraries(core, output):
     packages = core / "packages"
     source = packages / "framework-arduinoespressif32-libs"
     idf = packages / "framework-espidf"
+    # An export-only run must not label old archives with the new patch hash.
+    nm = packages / "toolchain-riscv32-esp/bin/riscv32-esp-elf-nm"
+    symbols = subprocess.check_output([str(nm), "-A", str(source / "esp32s31/lib/libmbedtls.a")],text=True)
+    bundle = [line for line in symbols.splitlines() if ":esp_crt_bundle.c.o:" in line]
+    if (not all(any(line.endswith(" U " + name) for line in bundle)
+                for name in ("mbedtls_calloc", "mbedtls_free")) or
+            any(line.endswith(" U calloc") for line in bundle)):
+        raise RuntimeError("Certificate bundle allocator patch is absent from compiled libraries")
     # Export to a staging directory: an interrupted build cannot replace a good package.
     stage = output.with_name(output.name + ".building")
     if stage.exists():
@@ -90,11 +98,12 @@ def export_libraries(core, output):
         if f"#define CONFIG_{symbol} {value}\n" not in config:
             raise RuntimeError(f"Unexpected CONFIG_{symbol}; resource profile does not match")
     metadata = json.loads((stage / "package.json").read_text())
-    metadata["version"] = "6.1.0+freeink.pan.hid.2"
+    metadata["version"] = "6.1.0+freeink.pan.hid.3"
     (stage / "package.json").write_text(json.dumps(metadata, indent=2) + "\n")
     (stage / "freeink-pan.json").write_text(json.dumps({
         "idf_base": IDF_COMMIT, "pan_source": "ad20ded62a2d67a26e501fdc1905f43ba7ad6c81",
         "patch_sha256": hashlib.sha256((HERE / "esp-idf-pan.patch").read_bytes()).hexdigest(),
+        "tls_allocator_patch_sha256": hashlib.sha256((HERE / "esp-idf-tls-allocator.patch").read_bytes()).hexdigest(),
         "config_sha256": hashlib.sha256((HERE / "pan.sdkconfig").read_bytes()).hexdigest(),
         "submodules_sha256": hashlib.sha256((HERE / "submodules.json").read_bytes()).hexdigest(),
     }, indent=2) + "\n")
@@ -150,15 +159,17 @@ def main():
             "components/esp_wifi/lib", "components/esp_phy/lib", "components/esp_coex/lib") else (lambda path: True)
         hydrate(idf / item["path"], cache / "submodules" / item["path"].replace("/", "_"),
                 item["repository"], item["sha"], include)
-    patch = HERE / "esp-idf-pan.patch"
+    patches = [HERE / "esp-idf-pan.patch", HERE / "esp-idf-tls-allocator.patch"]
     # Check both directions so rerunning with the same input is harmless. Fail
     # on a different baseline instead of silently producing a mixed framework.
     patch_env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(idf.parent))
-    check = subprocess.run(["git", "apply", "--check", str(patch)], cwd=idf, env=patch_env, capture_output=True)
-    if check.returncode == 0:
-        run(["git", "apply", str(patch)], cwd=idf, env=patch_env)
-    else:
-        run(["git", "apply", "--reverse", "--check", str(patch)], cwd=idf, env=patch_env)
+    for patch in patches:
+        check = subprocess.run(["git", "apply", "--check", str(patch)], cwd=idf, env=patch_env, capture_output=True)
+        if check.returncode == 0:
+            run(["git", "apply", str(patch)], cwd=idf, env=patch_env)
+        else:
+            run(["git", "apply", "--reverse", "--check", str(patch)], cwd=idf, env=patch_env)
+    run([sys.executable, HERE / "test_tls_allocator.py", "--idf", idf])
     component = work / "components/arduino_tinyusb"
     for filename in ("CMakeLists.txt", "Kconfig.projbuild", "include/tusb_config.h"):
         download(f"https://raw.githubusercontent.com/espressif/esp32-arduino-lib-builder/{BUILDER}/components/arduino_tinyusb/{filename}", component / filename)
@@ -202,7 +213,7 @@ def main():
     lock = HERE / "dependencies.lock"
     if lock.exists():
         shutil.copy2(lock, work / "dependencies.lock")
-    patch_hash = hashlib.sha256(patch.read_bytes()).hexdigest()
+    patch_hash = hashlib.sha256(b''.join(p.read_bytes() for p in patches)).hexdigest()
     (work / "pan.sdkconfig").write_text(f"# FreeInk IDF {IDF_COMMIT} PAN {patch_hash}\n" + (HERE / "pan.sdkconfig").read_text())
     (work / "platformio.ini").write_text(f"""[env:pan]
 platform = {PLATFORM}
