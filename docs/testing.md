@@ -441,3 +441,15 @@ and accounting cleanup. It also occupies unclassified PSRAM directly and checks
 that managed allocations preserve the reserve without consuming internal RAM.
 The header is opt-in; consumers must migrate paired allocation/release calls and
 report unclassified heap usage until their allocation paths are covered.
+
+## Page-pinned glyph storage
+
+The host `host_glyph_pages` test exercises `PageGlyphArena` with two blocks:
+current and candidate page pins, shared glyph references across promotion,
+refusal when all storage is protected, stale-generation rejection, empty glyphs
+and oversized glyph bypass. The arena has fixed metadata and borrows its pixel
+storage from the caller; it does not allocate or scan the heap. Reclamation
+checks at most 64 block descriptors and never overwrites a protected block.
+PicoInk's `document_api` test also floods a 16 KiB font cache and compares the
+held displayed glyph bytes, then checks cached and uncached raster output over
+repeated wraps and font sizes. Target page-turn latency remains a device check.
