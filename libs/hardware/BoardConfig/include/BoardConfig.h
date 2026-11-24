@@ -2493,7 +2493,10 @@ inline void holdPowerRails() {
   if (isMetalioEInk4()) freeink::metalio::ensureBooted();
 #endif
 #if FREEINK_DEVICE_METALIO_EINK4_PLUS
-  if (isMetalioEInk4Plus()) freeink::metalio_plus::ensureBooted();
+  // Boot callers mount TF immediately afterward. A transient first I2C NACK
+  // must finish the bounded rail retry here, before the nonblocking retry gate
+  // can make SD initialization skip this entire boot.
+  if (isMetalioEInk4Plus()) freeink::metalio_plus::ensureBooted(3000);
 #endif
   for (const int8_t pin : {ACTIVE.power.latch0, ACTIVE.power.latch1}) {
     if (pin < 0) continue;

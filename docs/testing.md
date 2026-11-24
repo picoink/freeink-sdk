@@ -268,6 +268,13 @@ pass. The PicoInk validation host used this override, as with its font tests.
 On the physical S31, the corrected 60-second timer produced `RTC timer wake
 detected` after 61.97 seconds; Reader, SD and cached covers recovered afterward.
 
+Metalio Plus boot rail initialization uses the existing three-second retry
+window before consumers mount TF. Previously a transient expander NACK at boot
+activated the nonblocking retry gate, so the immediately following TF mount was
+skipped even though later display initialization recovered the expander. The
+board host test now models delayed expander readiness and a persistent failure;
+it checks both successful rail setup before returning and the bounded timeout.
+
 ## Application PSRAM and waveform storage
 
 The host resource suite (`host_resources` in PicoInk's stress simulator build)
@@ -366,3 +373,13 @@ After a successful explicit resync, `recoverPresentation()` requests a fresh app
 frame before reopening input. The PicoInk surface test distinguishes a new
 successful presentation timestamp from stale success or another failed attempt,
 including an intervening status read.
+
+The LCD clear row is reserved at renderer initialization with internal DMA SRAM
+capabilities and retained until deinitialization (304 bytes on Metalio Plus).
+On S31, ordinary `malloc` and `MALLOC_CAP_INTERNAL` may fall back to LP RAM;
+an ISR reading the clear row there missed the bounce-buffer refill interval.
+The pipeline suite now checks cropped black, white and neutral clear pixels,
+buffer ownership across repeated clears, interrupted scans and lost completion.
+Clear failures also reach refresh fault metrics. UBSan findings stop the suite.
+Physical validation is separate: the PicoInk consumer records the LP address,
+refill timings, successful flashing and repeated-boot checks.

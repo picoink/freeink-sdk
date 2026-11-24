@@ -135,6 +135,7 @@ struct FsFile::Impl {
   std::string logical, name;
   StorageVolume* volume = nullptr;
   uint64_t epoch = 0;
+  bool directoryError = false;
   ~Impl() {
     if (dir) closedir(dir);
     if (fd >= 0) ::close(fd);
@@ -198,6 +199,18 @@ uint64_t FsFile::fileSize() const {
   struct stat s {};
   return *this && impl_->fd >= 0 && !fstat(impl_->fd, &s) ? s.st_size : 0;
 }
+bool FsFile::truncate(uint64_t n) {
+  return *this && impl_->fd >= 0 && n <= INT64_MAX && !impl_->volume->failed("_write") && !impl_->volume->failed("_truncate") && !ftruncate(impl_->fd, n);
+}
+uint64_t FsFile::modificationTime() const {
+  struct stat s {};
+  if (!*this || impl_->fd < 0 || fstat(impl_->fd, &s)) return 0;
+#ifdef __APPLE__
+  return uint64_t(s.st_mtimespec.tv_sec)*1000000000ULL+s.st_mtimespec.tv_nsec;
+#else
+  return uint64_t(s.st_mtim.tv_sec)*1000000000ULL+s.st_mtim.tv_nsec;
+#endif
+}
 bool FsFile::sync() {
   return *this && !impl_->volume->failed("_sync") && (impl_->dir || fsync(impl_->fd) == 0);
 }
@@ -211,14 +224,19 @@ const char* FsFile::path() const { return *this ? impl_->logical.c_str() : ""; }
 FsFile FsFile::openNextFile() {
   HostScope scope;
   if (!isDirectory()) return {};
+  if(impl_->volume->failed("_read")){impl_->directoryError=true;return {};}
+  errno=0;
   while (auto* entry = readdir(impl_->dir)) {
     if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
     const auto logical = (disk::path(impl_->logical) / entry->d_name).string();
     auto f = hostOpen(*impl_->volume, logical.c_str(), O_RDONLY);
     if (f) return f;
+    impl_->directoryError=true;return {};
   }
+  if(errno)impl_->directoryError=true;
   return {};
 }
+uint8_t FsFile::getError() const {return !*this || impl_->directoryError;}
 SDCardManager& SDCardManager::getInstance() {
   static SDCardManager card;
   return card;

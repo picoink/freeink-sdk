@@ -7,7 +7,12 @@ int main() {
   static_assert(BoardConfig::METALIO_EINK4_PLUS.audio.bclk == 42);
   static_assert(BoardConfig::METALIO_EINK4_PLUS.mic.data == 45);
   gpioLevels[EXPANDER_INT_GPIO] = HIGH;
-  assert(ensureBooted());
+  // A warm reset can leave the expander briefly unavailable. The boot entry
+  // must complete its bounded retry before a caller can mount TF.
+  const auto started = millis();
+  Wire.expanderReadyAt = started + 100;
+  BoardConfig::holdPowerRails();
+  assert(ready() && Wire.ends == 2 && millis() - started == 180);
   const auto boot = outputLatch();
   Wire.failExpander = true;
   assert(!setOutput(PIN_MOTOR, true) && outputLatch() == boot);
@@ -23,5 +28,10 @@ int main() {
   gpioLevels[EXPANDER_INT_GPIO] = LOW;
   assert(!prepareWakeOnPowerKey(true));
   assert(restoreAfterSleepAbort() && outputLatch() == boot);
-  puts("Metalio Plus pins, failed latch write, RTC wake routing and sleep rollback passed");
+  readyFlag() = false;
+  Wire.failExpander = true;
+  const auto failedAt = millis();
+  BoardConfig::holdPowerRails();
+  assert(!ready() && millis() - failedAt == 3000);
+  puts("Metalio Plus bounded boot retry, pins, latch write, RTC wake and sleep rollback passed");
 }
