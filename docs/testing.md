@@ -431,3 +431,13 @@ SDK host backend models this through `wake_from_sleep`; `host_backend` tests
 both states. PicoInk's process-restart integration tests verify consumption of
 one-shot recovery records. These checks and the Metalio firmware build passed
 on 2026-11-24; physical wake classification has not been validated for this change.
+
+## Categorized resource admission
+
+`host_resource_governance` in the stress simulator exercises `ResourceMemory.h`:
+independent category ceilings, two-MiB physical reserve, generation-bearing
+owners, rejected foreign release, incremental realloc/shrink, failure rollback,
+and accounting cleanup. It also occupies unclassified PSRAM directly and checks
+that managed allocations preserve the reserve without consuming internal RAM.
+The header is opt-in; consumers must migrate paired allocation/release calls and
+report unclassified heap usage until their allocation paths are covered.
