@@ -23,6 +23,7 @@ int main() {
   // A font cannot consume the independent database quota.
   auto* font=memory.allocate(3*MiB-256,Category::Font,other,Lifetime::Cache);assert(font);
   assert(!memory.allocate(512,Category::Font,other));
+  assert(memory.takePressure()==pressureFor(Category::Font));
   db=static_cast<unsigned char*>(memory.reallocate(db,5*MiB/4,Category::Database,owner));
   assert(db && db[MiB-1]==42); // Delta fits; two complete copies would not.
   auto before=memory.snapshot();
@@ -47,10 +48,12 @@ int main() {
   assert(memory.release(font,other));
   memory.endOwner(other);memory.endOwner(successor);
   assert(memory.snapshot().current==0);
+  memory.takePressure();
   // Physical admission accounts for unclassified driver/library allocations.
   auto* raw=heap_caps_malloc(14*MiB,MALLOC_CAP_SPIRAM);assert(raw);
   assert(memory.snapshot().unclassified>=14*MiB);
   assert(!memory.allocate(1,Category::Application));
+  assert(memory.takePressure()==globalPressure);
   assert(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)==65536);
   heap_caps_free(raw);
   auto* moving=static_cast<unsigned char*>(memory.allocate(MiB,Category::Database));assert(moving);moving[0]=42;
@@ -64,7 +67,9 @@ int main() {
   for(auto& p:fragments){p=heap_caps_malloc(MiB,MALLOC_CAP_SPIRAM);assert(p);}
   for(unsigned i=0;i<15;i+=2){heap_caps_free(fragments[i]);fragments[i]=nullptr;}
   assert(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)>5*MiB/2+reserveBytes);
+  memory.takePressure();
   assert(!memory.allocate(5*MiB/2,Category::System));
+  assert(memory.takePressure()==globalPressure);
   assert(memory.snapshot().current==0);
   for(auto p:fragments)heap_caps_free(p);
   auto abandoned=memory.beginOwner(7);

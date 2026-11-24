@@ -453,3 +453,10 @@ checks at most 64 block descriptors and never overwrites a protected block.
 PicoInk's `document_api` test also floods a 16 KiB font cache and compares the
 held displayed glyph bytes, then checks cached and uncached raster output over
 repeated wraps and font sizes. Target page-turn latency remains a device check.
+
+Resource governance checks distinguish a local category refusal from physical
+exhaustion: the former may evict only that category, while reserve/fragmentation
+failures request global reclamation. The consumer content test exercises reverse
+page prefetch and a transient-image quota refusal with no room for a third frame.
+Device acceptance must include sustained turns in both directions; alternating
+between two pages does not exercise this working set.

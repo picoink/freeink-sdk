@@ -28,6 +28,8 @@ class OwnerScope {
 };
 constexpr size_t MiB = 1024 * 1024;
 constexpr size_t reserveBytes = 2 * MiB;
+constexpr uint32_t pressureFor(Category category) {return uint32_t(1)<<size_t(category);}
+constexpr uint32_t globalPressure = (uint32_t(1)<<size_t(Category::Count))-1;
 constexpr std::array<size_t, 7> limits{7*MiB/2,3*MiB/2,2*MiB,3*MiB,3*MiB/2,2*MiB,MiB/2};
 constexpr const char* names[]{"system","application","document","font","database","frame","transient"};
 struct Usage { size_t current=0, peak=0, allocations=0, failures=0, cached=0; };
@@ -173,7 +175,10 @@ class Memory {
   OwnerAccount* find(Owner token) {if(token)for(auto& o:owners_)if(o.token==token)return &o;return nullptr;}
   void fail(Category category,Failure failure) {
     ++stats_.categories[size_t(category)].failures;++stats_.failures[size_t(failure)];
-    if(failure==Failure::CategoryLimit || failure==Failure::GlobalReserve || failure==Failure::Heap)pressure_|=uint32_t(1)<<size_t(category);
+    // A local quota refusal cannot be repaired by evicting another category.
+    // Only physical exhaustion/fragmentation asks every cache to reclaim.
+    if(failure==Failure::CategoryLimit)pressure_|=pressureFor(category);
+    else if(failure==Failure::GlobalReserve || failure==Failure::Heap)pressure_|=globalPressure;
   }
   void releaseLocked(Header* h) {
     if (!h) return;
