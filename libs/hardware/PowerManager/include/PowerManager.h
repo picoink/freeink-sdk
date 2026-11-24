@@ -19,6 +19,8 @@ namespace freeink {
 
 class PowerManager {
  public:
+  // True only for a boot caused by a completed deep sleep, never a cold reset.
+  static bool wokeFromSleep();
   // Arm wake-on-power-button using the SoC-correct wakeup source and the active
   // board's power pin + polarity (powerActiveHigh -> wake on HIGH, else LOW).
   // Returns false if the board has no power pin (PIN_UNASSIGNED); nothing armed.

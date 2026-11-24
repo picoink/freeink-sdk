@@ -264,6 +264,7 @@ bool UsbMassStorage::hostConnected() const {
   return state() == UsbMassStorageState::Connected || state() == UsbMassStorageState::Accessed;
 }
 bool PowerManager::armPowerButtonWakeup(bool) { return !fault("wake"); }
+bool PowerManager::wokeFromSleep() { return deviceBool("wake_from_sleep", false); }
 void PowerManager::powerDownRailsForSleep() {}
 PowerManager::AbortedSleepInfo PowerManager::takeAbortedSleepInfo() { return {}; }
 void PowerManager::waitForPowerButtonRelease() {}

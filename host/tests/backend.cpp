@@ -4,6 +4,7 @@
 #include <HostRuntime.h>
 #include <InputManager.h>
 #include <Preferences.h>
+#include <PowerManager.h>
 #include <SDCardManager.h>
 #include <unistd.h>
 
@@ -22,6 +23,11 @@ int main() {
   configureStorage(root.string());
   runtime().outputRoot = (root / "output").string();
   CHECK(SdMan.begin());
+  CHECK(!freeink::PowerManager::wokeFromSleep());
+  setDevice("wake_from_sleep", Json(true));
+  CHECK(freeink::PowerManager::wokeFromSleep());
+  setDevice("wake_from_sleep", Json(false));
+  CHECK(!freeink::PowerManager::wokeFromSleep());
   CHECK(SdMan.ensureDirectoryExists("/books"));
   auto file = SdMan.open("/books/test.txt", O_RDWR | O_CREAT | O_TRUNC);
   CHECK(file);

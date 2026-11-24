@@ -14,6 +14,10 @@
 #endif
 
 namespace freeink {
+bool PowerManager::wokeFromSleep() {
+  return esp_reset_reason() == ESP_RST_DEEPSLEEP &&
+         esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_UNDEFINED;
+}
 namespace {
 int8_t powerPin() { return BoardConfig::ACTIVE.input.power; }
 bool powerActiveHigh() { return BoardConfig::ACTIVE.input.powerActiveHigh; }

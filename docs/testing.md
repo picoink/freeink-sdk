@@ -383,3 +383,12 @@ buffer ownership across repeated clears, interrupted scans and lost completion.
 Clear failures also reach refresh fault metrics. UBSan findings stop the suite.
 Physical validation is separate: the PicoInk consumer records the LP address,
 refill timings, successful flashing and repeated-boot checks.
+
+## Wake classification
+
+`PowerManager::wokeFromSleep()` identifies a completed deep-sleep boot using the
+reset reason and wake source. Cold boot and software reset do not count. The
+SDK host backend models this through `wake_from_sleep`; `host_backend` tests
+both states. PicoInk's process-restart integration tests verify consumption of
+one-shot recovery records. These checks and the Metalio firmware build passed
+on 2026-11-24; physical wake classification has not been validated for this change.
