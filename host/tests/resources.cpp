@@ -52,6 +52,13 @@ int main() {
   assert(!memory.allocate(1,Category::Application));
   assert(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)==65536);
   heap_caps_free(raw);
+  auto* moving=static_cast<unsigned char*>(memory.allocate(MiB,Category::Database));assert(moving);moving[0]=42;
+  auto* pressure=heap_caps_malloc(25*MiB/2,MALLOC_CAP_SPIRAM);assert(pressure);
+  assert(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)>reserveBytes+MiB/4);
+  // Delta fits the category and free space, but a moved block would cross the
+  // physical reserve before its old allocation can be released.
+  assert(!memory.reallocate(moving,5*MiB/4,Category::Database,0) && moving[0]==42);
+  heap_caps_free(pressure);memory.release(moving);
   void* fragments[15];
   for(auto& p:fragments){p=heap_caps_malloc(MiB,MALLOC_CAP_SPIRAM);assert(p);}
   for(unsigned i=0;i<15;i+=2){heap_caps_free(fragments[i]);fragments[i]=nullptr;}
@@ -89,7 +96,7 @@ int main() {
   assert(InternalMemory::get().createTask(16*1024,[&]{called=true;return true;}) && called);
   const auto stats=memory.snapshot();
   assert(stats.failures[size_t(Failure::Heap)]==2);
-  assert(stats.failures[size_t(Failure::GlobalReserve)]==1);
+  assert(stats.failures[size_t(Failure::GlobalReserve)]==2);
   assert(stats.failures[size_t(Failure::ForeignOwner)]==1);
   assert(stats.current==0 && stats.free==stats.capacity);
 }

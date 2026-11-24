@@ -99,7 +99,11 @@ class Memory {
     }
     const size_t capacity=heap_caps_get_total_size(caps),free=heap_caps_get_free_size(caps);
     const size_t global=capacity>reserveBytes?capacity-reserveBytes:0;
-    if (growth && (stats_.current>global || growth>global-stats_.current || free<reserveBytes || growth>free-reserveBytes)) {
+    // The category charges only growth. A physical realloc may still move
+    // the block before freeing its predecessor; preserve reserve even during
+    // that copy. Shrinking is in-place and needs no additional admission.
+    const size_t physicalGrowth=old && growth?charge:growth;
+    if (growth && (stats_.current>global || growth>global-stats_.current || free<reserveBytes || physicalGrowth>free-reserveBytes)) {
       fail(category,Failure::GlobalReserve);return nullptr;
     }
     // heap_caps_realloc preserves the original allocation on failure. Shrinking
