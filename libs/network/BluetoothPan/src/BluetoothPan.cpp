@@ -22,7 +22,7 @@ static_assert(Pan::supported(),
               "Bluetooth PAN enabled but Classic/Bluedroid/PAN is missing; "
               "build the FreeInk PAN libraries");
 #include <Arduino.h>
-#include <Network.h>
+#include <esp_event.h>
 #include <Preferences.h>
 #include <esp32-hal-alloc-bt-classic-mem.h>
 #include <BluetoothHost.h>
@@ -524,7 +524,12 @@ void handle(const Event& e) {
   }
 }
 bool initialize() {
-  if (!Network.begin() || !freeink::BluetoothHost::acquire(freeink::BluetoothHost::Profile::Pan)) return false;
+  // PAN dispatches IDF events directly. Arduino's second event queue and task
+  // are unused here and consume internal SRAM needed during BTDM startup.
+  if (esp_netif_init() != ESP_OK) return false;
+  const auto events = esp_event_loop_create_default();
+  if (events != ESP_OK && events != ESP_ERR_INVALID_STATE) return false;
+  if (!freeink::BluetoothHost::acquire(freeink::BluetoothHost::Profile::Pan)) return false;
   esp_bt_io_cap_t io = ESP_BT_IO_CAP_IO;
   if (esp_bt_gap_set_security_param(ESP_BT_SP_IOCAP_MODE, &io, sizeof(io)) !=
           ESP_OK ||

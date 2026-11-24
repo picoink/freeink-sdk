@@ -38,6 +38,14 @@ int main() {
   assert(!fake::starts &&
          !fake::opens);  // Capability/status do not initialize radio or NVS.
   assert(!pan.status().enabled);
+  fake::netifInitResult=ESP_FAIL;
+  run([] { assert(false); });
+  assert(pan.status().state==State::Error && !fake::starts);
+  fake::netifInitResult=ESP_OK;fake::eventLoopResult=ESP_FAIL;
+  run([] { assert(false); });
+  assert(pan.status().state==State::Error && !fake::starts);
+  // A default loop shared with another IDF service is already initialized.
+  fake::eventLoopResult=ESP_ERR_INVALID_STATE;
   fake::taskOk = false;
   assert(pan.begin() == Pan::Result::Failed && !pan.status().enabled);
   fake::taskOk = true;

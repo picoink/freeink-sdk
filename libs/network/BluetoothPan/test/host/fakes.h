@@ -25,6 +25,7 @@ inline unsigned confirms = 0, rejects = 0, bonds = 0, opens = 0,
 inline bool taskOk = true, initOk = true, nvsOk = true, profile = false;
 inline int bluedroid = 0, controller = 0, lastMode = 0;
 inline bool stopOk=true,hostEnableOk=true;
+inline int netifInitResult=0,eventLoopResult=0;
 inline std::vector<uint8_t> saved, transmitted, received;
 inline std::string name;
 inline std::function<void()> onWait;
@@ -100,10 +101,8 @@ class Preferences {
       fake::name.clear();
   }
 };
-struct NetworkClass {
-  bool begin() { return true; }
-};
-inline NetworkClass Network;
+inline int esp_netif_init() { return fake::netifInitResult; }
+inline int esp_event_loop_create_default() { return fake::eventLoopResult; }
 using esp_err_t = int;
 constexpr int ESP_OK = 0, ESP_FAIL = -1, ESP_ERR_INVALID_ARG = -2,
               ESP_ERR_INVALID_STATE = -3;

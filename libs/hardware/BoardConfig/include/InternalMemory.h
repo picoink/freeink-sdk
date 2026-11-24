@@ -28,10 +28,18 @@ class InternalMemory {
     // Measured BTDM startup is larger than the steady-state controller. DMA
     // and ordinary internal SRAM are distinct pools on S31; both must fit.
     constexpr unsigned dmaCaps=MALLOC_CAP_INTERNAL|MALLOC_CAP_DMA|MALLOC_CAP_8BIT;
-    const bool ready=heap_caps_get_free_size(dmaCaps)>=112*1024 &&
-        heap_caps_get_largest_free_block(dmaCaps)>=32*1024 &&
-        heap_caps_get_free_size(caps)>=128*1024;
-    if(!ready)++radioDenied_;return ready;
+    const auto dma=heap_caps_get_free_size(dmaCaps);
+    const auto largest=heap_caps_get_largest_free_block(dmaCaps);
+    const auto internal=heap_caps_get_free_size(caps);
+    const bool ready=dma>=112*1024 && largest>=32*1024 && internal>=128*1024;
+    if(!ready){
+      ++radioDenied_;
+#if defined(ESP_PLATFORM) && !defined(FREEINK_HOST) && !defined(FREEINK_TASK_TEST)
+      esp_rom_printf("[Memory] radio refused internal=%u dma=%u largest=%u\n",
+                     unsigned(internal),unsigned(dma),unsigned(largest));
+#endif
+    }
+    return ready;
   }
   size_t radioDenied(){std::lock_guard<std::mutex> lock(mutex_);return radioDenied_;}
   // Heap failure hooks must not allocate or take heap locks.

@@ -25,7 +25,7 @@ with tempfile.TemporaryDirectory(prefix="freeink-pan-") as tmp:
                     "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=30)
     stubs = Path(tmp) / "stubs"
-    names = ["sdkconfig.h", "soc/soc_caps.h", "Arduino.h", "Network.h", "Preferences.h",
+    names = ["sdkconfig.h", "soc/soc_caps.h", "Arduino.h", "esp_event.h", "Preferences.h",
              "esp32-hal-bt.h", "esp_bt.h", "esp32-hal-alloc-bt-classic-mem.h", "esp_bt_main.h", "esp_bt_device.h",
              "esp_gap_bt_api.h", "esp_pan_api.h", "esp_netif.h", "esp_netif_defaults.h",
              "freertos/FreeRTOS.h", "freertos/task.h", "freertos/queue.h"]
