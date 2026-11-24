@@ -348,6 +348,23 @@ facade: separate TF/internal contents, moves and handle accounting, exclusive
 reservation, remount without formatting, path validation and concurrent callers.
 The host internal directory models file ownership, not FAT/WL flash behavior.
 
+`sh libs/hardware/SDCardManager/test/host/run_internal.sh` exercises the device's
+POSIX internal-file helper against real temporary files: missing files, exclusive
+creation, append after seek, read-only protection, truncation, directory iteration
+and repeated opens. Device internal storage uses descriptors directly and `stat`
+for existence checks; it no longer creates temporary Arduino stdio streams and
+their libc mutexes before reopening the same file. This test does not emulate
+ESP heap pressure or FAT/WL. PicoInk records cold-open and response-time hardware
+validation separately.
+
+PSRAM consumers can call `memory::preferExternalHeap()` after initializing
+boot-critical peripherals. It routes ordinary task-side library allocations to
+PSRAM first; explicit internal/DMA allocations and FreeRTOS stacks/locks keep
+their capability requirements. This avoids the Arduino 4 KiB default-allocation
+threshold exhausting SRAM during concurrent display and content work. The host
+backend does not change its process allocator; actual SRAM headroom and display
+stability must be measured on the device.
+
 The USB MSC suite also compiles `FlashUsbStorage` against a deterministic
 wear-levelling backend. It covers native 4096-byte FAT sectors, partition/bounds
 validation, erase failures and remount persistence. These host checks do not

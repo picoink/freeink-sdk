@@ -8,6 +8,7 @@
 #include <cerrno>
 #include <unistd.h>
 #include <fcntl.h>
+#include "InternalFile.h"
 #endif
 #ifdef FREEINK_HOST
 #include <LittleFS.h>
@@ -68,21 +69,17 @@ StorageFile VolumeStorage::open(const char* name, oflag_t flags) {
   if (p.volume == StorageVolume::Tf) file.sd_ = SdMan.open(p.path.c_str(), flags);
 #ifdef INTERNAL_FS
   else {
+#ifdef FREEINK_HOST
     const bool exists = INTERNAL_FS.exists(p.path.c_str());
     if ((!exists && !(flags & O_CREAT)) || (exists && (flags & O_EXCL) && (flags & O_CREAT))) return file;
     const bool write = (flags & O_ACCMODE) != O_RDONLY;
     const char* mode = !write ? "r" : (flags & O_APPEND) ? "a+" :
       ((flags & O_TRUNC) || !exists) ? "w+" : "r+";
     file.flash_ = INTERNAL_FS.open(p.path.c_str(), mode);
-#ifndef FREEINK_HOST
-    // Arduino File::flush hides errors. Regular internal files use an fd so
-    // sync/truncate can report the actual filesystem result to callers.
-    if(file.flash_ && file.flash_.isDirectory()) {file.flash_.close();file.directory_=opendir(("/internal"+p.path).c_str());}
-    else if (file.flash_) {
-      file.flash_.close();
-      int access = !write ? 0 : 2; // POSIX O_RDONLY / O_RDWR
-      file.descriptor_ = ::open(("/internal" + p.path).c_str(), access);
-    }
+#else
+    auto handle = detail::openInternal(("/internal" + p.path).c_str(), flags);
+    file.descriptor_ = handle.descriptor;
+    file.directory_ = handle.directory;
 #endif
     file.path_ = p.path;
   }
@@ -93,7 +90,11 @@ bool VolumeStorage::exists(const char* name) {
   Lock lock(storageMutex()); auto p = resolve(name); if (!p.valid || !ready(p.volume)) return false;
   if (p.volume == StorageVolume::Tf) return SdMan.exists(p.path.c_str());
 #ifdef INTERNAL_FS
+#ifdef FREEINK_HOST
   return INTERNAL_FS.exists(p.path.c_str());
+#else
+  return detail::internalExists(("/internal" + p.path).c_str());
+#endif
 #else
   return false;
 #endif
@@ -124,7 +125,7 @@ bool VolumeStorage::ensureDirectoryExists(const char* name) {
   for (size_t end = 1; end <= p.path.size(); ++end) {
     if (end != p.path.size() && p.path[end] != '/') continue;
     auto part = p.path.substr(0, end);
-    if (!INTERNAL_FS.exists(part.c_str()) && !INTERNAL_FS.mkdir(part.c_str())) return false;
+    if (!exists(("/internal" + part).c_str()) && !INTERNAL_FS.mkdir(part.c_str())) return false;
   }
   return true;
 #else
