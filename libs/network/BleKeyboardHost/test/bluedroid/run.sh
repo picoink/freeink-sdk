@@ -6,3 +6,7 @@ trap 'rm -rf "$BUILD_DIR"' EXIT
 c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined -Istubs -I../../include \
   lifecycle.cpp ../../src/BleKeyboardHost.cpp ../../src/HidKeymap.cpp -o "$BUILD_DIR/test"
 "$BUILD_DIR/test"
+
+c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=undefined -Istubs -I../../include \
+  page_turner.cpp ../../src/BleKeyboardHost.cpp ../../src/HidKeymap.cpp -o "$BUILD_DIR/page_turner"
+"$BUILD_DIR/page_turner"

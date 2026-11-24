@@ -145,7 +145,10 @@ The Bluedroid suite drives asynchronous GATT discovery, security, report
 subscription and input. It covers scan/open teardown races, timeout cancellation,
 notification flooding and retrying the final host release while retaining PAN.
 The PAN suite also checks both lease-release orders and shared-host failures.
-Neither suite establishes a radio connection.
+Neither suite establishes a radio connection. The Bluedroid runner also drives
+the PageTurner worker with deterministic task stepping: per-device bindings,
+release-based learning, save rejection, full-queue cancellation, input and sleep
+generation acknowledgements.
 
 ## Frontlight driver
 

@@ -24,12 +24,13 @@ inline void xQueueReset(QueueHandle_t q){q->values.clear();}
 inline int xQueueSend(QueueHandle_t q,const void* value,int){if(q->values.size()==q->limit)return 0;auto p=static_cast<const uint8_t*>(value);q->values.emplace_back(p,p+q->size);return 1;}
 inline int xQueueReceive(QueueHandle_t q,void* out,int){if(q->values.empty())return 0;memcpy(out,q->values.front().data(),q->size);q->values.pop_front();return 1;}
 struct Preferences {
+ static inline bool saveOk=true;
  static inline std::map<std::string,std::vector<uint8_t>> data;
  bool begin(const char*,bool=false){return true;} void end(){}
  uint8_t getUChar(const char* k,uint8_t v){return data[k].empty()?v:data[k][0];}
  size_t getBytes(const char* k,void* out,size_t n){n=std::min(n,data[k].size());memcpy(out,data[k].data(),n);return n;}
  size_t putUChar(const char* k,uint8_t v){data[k]={v};return 1;}
- size_t putBytes(const char* k,const void* value,size_t n){auto p=static_cast<const uint8_t*>(value);data[k]=std::vector<uint8_t>(p,p+n);return n;}
+ size_t putBytes(const char* k,const void* value,size_t n){if(!saveOk)return 0;auto p=static_cast<const uint8_t*>(value);data[k]=std::vector<uint8_t>(p,p+n);return n;}
 };
 using esp_gatt_if_t=uint8_t; using esp_bd_addr_t=uint8_t[6];using esp_ble_addr_type_t=uint8_t;
 using esp_gap_ble_cb_event_t=int;using esp_gattc_cb_event_t=int;
@@ -139,3 +140,7 @@ static bool acquire(Profile p){leases|=unsigned(p);return true;}
 static bool held(Profile p){return leases&unsigned(p);}
 static bool release(Profile p){if(!releaseOk)return false;leases&=~unsigned(p);return true;}
 };}
+
+using TaskHandle_t=void*;
+constexpr int pdPASS=1;
+inline int xTaskCreate(void(*)(void*),const char*,unsigned,void*,unsigned,TaskHandle_t* task){*task=reinterpret_cast<void*>(1);return pdPASS;}

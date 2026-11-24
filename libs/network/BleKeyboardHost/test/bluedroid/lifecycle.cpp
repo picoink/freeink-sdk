@@ -141,4 +141,5 @@ int main() {
   assert(host.end(0));
   puts("Bluedroid HID discovery, input, timeout and shared-host teardown tests "
        "passed");
+  return 0;
 }
