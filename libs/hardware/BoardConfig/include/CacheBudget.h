@@ -14,8 +14,11 @@ class CacheBudget {
     if (!bytes) return true;
     std::lock_guard<std::mutex> lock(mutex_);
     const auto free=heap_caps_get_free_size(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-    const auto largest=heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-    if (bytes>limit_-used_ || free<reserve_ || bytes>free-reserve_ || bytes>largest) return false;
+    // Largest-block queries walk the heap. SQLite and font caches reserve
+    // many small allocations, making that scan cost grow with every live
+    // block. The allocator checks fragmentation; callers release this budget
+    // if allocation fails, just as they do for any other allocation failure.
+    if (bytes>limit_-used_ || free<reserve_ || bytes>free-reserve_) return false;
     used_+=bytes; return true;
   }
   void release(size_t bytes) {
