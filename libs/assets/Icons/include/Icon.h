@@ -4,11 +4,12 @@
 
 namespace freeink {
 
-// A 1-bpp icon bitmap with baked-in layout metadata, generated from an SVG by
+// A 4-bpp antialiased icon mask with baked-in layout metadata, generated from an SVG by
 // tools/gen_icons.py (see libs/assets/Icons).
 //
-// Format: rows top-to-bottom, each (w + 7) / 8 bytes, MSB-first. Bit 1 = leave the
-// pixel (transparent), bit 0 = draw black. NOT pre-rotated — the renderer maps
+// Format: rows top-to-bottom, each (w + 1) / 2 bytes, high nibble first.
+// Coverage 0 leaves the background untouched; 15 draws the foreground fully.
+// Intermediate levels blend with the existing background. NOT pre-rotated — the renderer maps
 // logical coordinates to the panel itself, so the same asset is correct in every
 // orientation.
 //

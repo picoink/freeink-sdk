@@ -65,6 +65,22 @@
     {
       "file": "wifi.svg",
       "sha256": "5c4c795d014fa95d1e1038362df44a0f0f32ded9cb08c833ae72419ebadc9a91"
+    },
+    {
+      "file": "sliders-horizontal.svg",
+      "sha256": "e43a00e5eb684e6cbb61083bed2528d7a3fa5f265693eb2b5f314cd432aa65f4"
+    },
+    {
+      "file": "delete.svg",
+      "sha256": "a83d9f3d624827c94d41dceff4df530728e502989fceb415d72203bf934aa0df"
+    },
+    {
+      "file": "arrow-big-up.svg",
+      "sha256": "3149e1edfa3d8042f37bda6505305d629b0389e313e54327bbb251099977c639"
+    },
+    {
+      "file": "globe.svg",
+      "sha256": "82c6b8fa0b8e8d775ec9becd86f74a4e50bff7bee4c81f7362de45348504f14d"
     }
   ]
 }

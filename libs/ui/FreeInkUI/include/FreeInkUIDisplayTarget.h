@@ -314,6 +314,15 @@ class DisplayTarget final : public DrawTarget {
               const Paint foreground = Paint::solid(Color::Black),
               const Rotation rotation = Rotation::None) override {
     if (!bitmap || rect.empty()) return;
+    if (bitmap.format==BitmapFormat::Mask4) {
+      const Color color=foreground.kind==PaintKind::None ? Color::Black : foreground.color;
+      if (color==Color::Transparent) return;
+      forEachBitmapSample(rect,bitmap,mode,[&](int16_t x,int16_t y,uint8_t coverage) {
+        if (gray8_) plot(x,y,color,coverage*17);
+        else if (coverage==15 || coverage>bayerAt(x,y)) plot(x,y,color);
+      },rotation);
+      return;
+    }
     if (bitmap.format==BitmapFormat::Gray4) {
       if (gray8_ && mode==BitmapMode::Stretch && rotation==Rotation::None) {
         stretchGray<4>(rect,bitmap); return;

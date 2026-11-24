@@ -14,3 +14,4 @@ sun = sun
 bluetooth = bluetooth
 moon = moon
 network = wifi
+progress = sliders-horizontal

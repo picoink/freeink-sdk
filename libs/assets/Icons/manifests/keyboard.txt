@@ -1,0 +1,3 @@
+delete = delete
+shift = arrow-big-up
+globe = globe

@@ -332,6 +332,16 @@ class GfxRendererTarget final : public DrawTarget {
               const Paint foreground = Paint::solid(Color::Black),
               const Rotation rotation = Rotation::None) override {
     if (!bitmap || rect.empty()) return;
+    if (bitmap.format==BitmapFormat::Mask4) {
+      const Color color=foreground.kind==PaintKind::None ? Color::Black : foreground.color;
+      if (color==Color::Transparent) return;
+      static constexpr uint8_t bayer[]={0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5};
+      forEachBitmapSample(rect,bitmap,mode,[&](int16_t x,int16_t y,uint8_t coverage) {
+        if (clip_.contains(x,y) && (coverage==15 || coverage>bayer[(y&3)*4+(x&3)]))
+          renderer.drawPixel(x,y,color!=Color::White);
+      },rotation);
+      return;
+    }
 
     // BW1 (set bit = ink) and Mask1 (Icon convention: bit 0 = ink), both
     // row-major natural orientation — same contract as DisplayTarget, so one
