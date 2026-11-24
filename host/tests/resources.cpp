@@ -1,6 +1,7 @@
 #include <ResourceMemory.h>
 #include <SharedReadCache.h>
 #include <InternalMemory.h>
+#include <TlsMemory.h>
 #include <HostRuntime.h>
 #include <HostMemory.h>
 #include <cassert>
@@ -80,6 +81,9 @@ int main() {
     assert(changed.read(0,output,16,read,&reads,hits)==16 && reads==2);
     second.trim();assert(second.read(0,output,16,read,&reads,hits)==16 && reads==3);
   }
+  auto* tls=static_cast<unsigned char*>(TlsMemory::calloc(128,1024));assert(tls && tls[0]==0 && tls[128*1024-1]==0);
+  assert(!TlsMemory::calloc(SIZE_MAX,2));
+  assert(!TlsMemory::calloc(512,1024));TlsMemory::free(tls);
   bool called=false;
   assert(!InternalMemory::get().createTask(64*1024,[&]{called=true;return true;}) && !called);
   assert(InternalMemory::get().createTask(16*1024,[&]{called=true;return true;}) && called);
