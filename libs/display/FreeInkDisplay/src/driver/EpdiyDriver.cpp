@@ -3,6 +3,9 @@
 #if FREEINK_DRIVER_EPDIY
 
 #include <esp_heap_caps.h>
+#if __has_include(<ResourceMemory.h>)
+#include <ResourceMemory.h>
+#endif
 #include <freertos/idf_additions.h>
 #if CONFIG_PM_ENABLE
 #include <esp_pm.h>
@@ -112,7 +115,15 @@ void EpdiyDriver::begin(EpdBus& bus) {
   if (_msb == nullptr) _msb = static_cast<uint8_t*>(heap_caps_malloc(planeBytes, MALLOC_CAP_SPIRAM));
   if (_lsb) memset(_lsb, 0, planeBytes);
   if (_msb) memset(_msb, 0, planeBytes);
-  _ready = _hl.front_fb != nullptr;
+#if __has_include(<ResourceMemory.h>)
+  auto account=[](const void* pointer,size_t bytes){return !pointer || resources::Memory::get().accountPermanent(pointer,bytes+32);};
+  const size_t frameBytes=size_t(geometry().width)*geometry().height/2;
+  const bool accounted=account(_hl.front_fb,frameBytes) && account(_hl.back_fb,frameBytes) &&
+    account(_hl.difference_fb,2*frameBytes) && account(_lsb,planeBytes) && account(_msb,planeBytes);
+#else
+  const bool accounted=true;
+#endif
+  _ready = _hl.front_fb != nullptr && accounted;
   _faulted = false; _panelKnown = false;
   if (_ready && _cfg.deferredRefresh && !_worker) {
     _stop.store(false); _exited.store(false);

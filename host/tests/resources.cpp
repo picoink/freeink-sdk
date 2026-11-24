@@ -1,4 +1,6 @@
 #include <ResourceMemory.h>
+#include <SharedReadCache.h>
+#include <InternalMemory.h>
 #include <HostRuntime.h>
 #include <HostMemory.h>
 #include <cassert>
@@ -57,11 +59,30 @@ int main() {
   assert(memory.snapshot().current==0);
   for(auto p:fragments)heap_caps_free(p);
   auto abandoned=memory.beginOwner(7);
+  auto* executable=allocateAligned(853,64,Category::Application,abandoned);
+  assert(executable && !(uintptr_t(executable)&63));memset(executable,42,853);releaseAligned(executable);
+  assert(memory.ownerBytes(abandoned)==0);
   auto first=memory.allocate(1024,Category::Application,abandoned);
   assert(first && memory.allocate(1024,Category::Application,abandoned));
   first=memory.reallocate(first,8192,Category::Application,abandoned);assert(first);
   assert(memory.allocate(128,Category::Transient,abandoned));
   assert(memory.reclaimOwner(abandoned)>0 && memory.ownerBytes(abandoned)==0);
+  {
+    SharedReadCache first,second,changed;
+    first.open("font.ttf",8192,1);first.configure(8192);
+    const auto charged=memory.snapshot().current;assert(charged>8192);
+    second.open("font.ttf",8192,1);second.configure(8192);assert(memory.snapshot().current==charged);
+    unsigned reads=0;uint32_t hits=0;uint8_t output[16]{};
+    auto read=[](void* p,size_t at,uint8_t* out,size_t bytes)->size_t {++*static_cast<unsigned*>(p);memset(out,int(at/4096+42),bytes);return bytes;};
+    assert(first.read(0,output,16,read,&reads,hits)==16 && output[0]==42 && reads==1);
+    first.close();assert(second.read(0,output,16,read,&reads,hits)==16 && reads==1);
+    changed.open("font.ttf",8192,2);changed.configure(8192);
+    assert(changed.read(0,output,16,read,&reads,hits)==16 && reads==2);
+    second.trim();assert(second.read(0,output,16,read,&reads,hits)==16 && reads==3);
+  }
+  bool called=false;
+  assert(!InternalMemory::get().createTask(64*1024,[&]{called=true;return true;}) && !called);
+  assert(InternalMemory::get().createTask(16*1024,[&]{called=true;return true;}) && called);
   const auto stats=memory.snapshot();
   assert(stats.failures[size_t(Failure::Heap)]==2);
   assert(stats.failures[size_t(Failure::GlobalReserve)]==1);
