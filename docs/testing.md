@@ -299,11 +299,11 @@ zero initialization, preservation on failure and no internal fallback when
 PSRAM is exhausted. The total-capacity query must remain stable as free space
 changes, so font allocation cannot mistake exhaustion for a no-PSRAM board.
 
-The same suite checks the shared cache budget's four-MiB limit and two-MiB
-working reserve, including fragmentation where admission succeeds but the actual
-allocation fails and its reservation is released. Admission queries free bytes;
-it does not walk the heap for its largest block on every small allocation.
-The PicoInk consumer records before/after device timings separately.
+The categorized `host_resource_governance` suite replaces the shared optional
+cache budget. It tests category admission, physical reserve, fragmented heaps,
+delta realloc, owner generations, cross-owner release rejection and reclamation.
+Consumers must use matching managed release calls and report unclassified heap
+usage. Physical free-space admission includes unmigrated driver/library blocks.
 
 ```sh
 sh libs/hardware/BoardMetalioEInk4Plus/test/host/run.sh

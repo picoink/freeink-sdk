@@ -8,7 +8,6 @@
 #include "HostMemory.h"
 #include "esp_heap_caps.h"
 #include "ApplicationMemory.h"
-#include "CacheBudget.h"
 #include "FontAlloc.h"
 extern "C" void* c_allocation(size_t);
 extern "C" void c_release(void*);
@@ -98,26 +97,6 @@ int main() {
   assert(num(field(stats, "failures")) >= 4);
   assert(parseJson(R"({"memory":{"ram_bytes":4096,"psram_bytes":8388608}})", config).empty());
   configureResources(config);
-  auto& budget=freeink::memory::CacheBudget::instance();
-  constexpr size_t mib=1024*1024;
-  assert(budget.acquire(4*mib) && budget.used()==4*mib);
-  assert(!budget.acquire(1));
-  budget.release(4*mib);
-  // Admission preserves the working reserve. Fragmentation is checked by the
-  // allocator, and a failed allocation must return its reservation.
-  void* fragmented[7];
-  for(auto& block:fragmented) {block=ps_malloc(mib);assert(block);}
-  for(unsigned i=0;i<7;i+=2) {free(fragmented[i]);fragmented[i]=nullptr;}
-  constexpr size_t request=5*mib/2;
-  assert(host_heap_free(MALLOC_CAP_SPIRAM)>=request+budget.reserve_);
-  assert(host_heap_largest(MALLOC_CAP_SPIRAM)<request);
-  assert(budget.acquire(request));
-  assert(!ps_malloc(request));
-  budget.release(request);assert(budget.used()==0);
-  for(auto block:fragmented) free(block);
-  auto occupiedReserve=ps_malloc(6*mib);assert(occupiedReserve);
-  assert(!budget.acquire(1) && budget.used()==0);
-  free(occupiedReserve);
   assert(parseJson(R"({"cpu":{"slowdown":3}})", config).empty());
   configureResources(config);
   firmwareAllocations = true;

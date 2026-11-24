@@ -6,13 +6,25 @@
 #include <cstdint>
 #include <limits>
 #include <mutex>
+#include <memory>
 #include <new>
+#include <utility>
 
 namespace freeink::resources {
 enum class Category : uint8_t { System, Application, Document, Font, Database, Frame, Transient, Count };
 enum class Lifetime : uint8_t { System, Application, Session, Operation, Cache };
 enum class Failure : uint8_t { None, CategoryLimit, GlobalReserve, Heap, StaleOwner, ForeignOwner, Overflow, Count };
 using Owner = uint64_t;
+inline thread_local Owner currentOwner=0;
+class OwnerScope {
+ public:
+  explicit OwnerScope(Owner owner):previous_(currentOwner){currentOwner=owner;}
+  ~OwnerScope(){currentOwner=previous_;}
+  OwnerScope(const OwnerScope&)=delete;
+  OwnerScope& operator=(const OwnerScope&)=delete;
+ private:
+  Owner previous_;
+};
 constexpr size_t MiB = 1024 * 1024;
 constexpr size_t reserveBytes = 2 * MiB;
 constexpr std::array<size_t, 7> limits{7*MiB/2,3*MiB/2,2*MiB,3*MiB,3*MiB/2,2*MiB,MiB/2};
@@ -28,10 +40,16 @@ struct Snapshot {
 // Physical free-space admission also covers allocations outside this ledger.
 class Memory {
  public:
-  static Memory& get() { static Memory instance; return instance; }
+  static Memory& get() {
+    // Global firmware buffers outlive setup()-constructed function statics on
+    // host shutdown. Keep this allocation-free ledger alive through teardown.
+    alignas(Memory) static unsigned char storage[sizeof(Memory)];
+    static Memory* instance=new(storage) Memory;
+    return *instance;
+  }
   Owner beginOwner(uint32_t id) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!id) return 0;
+    if (!id || generation_==UINT32_MAX) return 0;
     for (auto& o:owners_) if (!o.active && !o.bytes) {
       o={uint64_t(++generation_)<<32|id,0,true};return o.token;
     }
@@ -47,10 +65,17 @@ class Memory {
     for (const auto& o:owners_) if (o.token==token) return o.bytes;
     return 0;
   }
-  void* allocate(size_t size,Category category,Owner owner=0,Lifetime lifetime=Lifetime::Operation) {
+  size_t reclaimOwner(Owner token) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto* owner=find(token);if(!owner)return 0;
+    owner->active=false;const auto bytes=owner->bytes;
+    while(owner->head)releaseLocked(owner->head);
+    return bytes;
+  }
+  void* allocate(size_t size,Category category,Owner owner=currentOwner,Lifetime lifetime=Lifetime::Operation) {
     return reallocate(nullptr,size,category,owner,lifetime);
   }
-  void* reallocate(void* pointer,size_t size,Category category=Category::Application,Owner owner=0,Lifetime lifetime=Lifetime::Application) {
+  void* reallocate(void* pointer,size_t size,Category category=Category::Application,Owner owner=currentOwner,Lifetime lifetime=Lifetime::Application) {
     std::lock_guard<std::mutex> lock(mutex_);
     auto* old=pointer?static_cast<Header*>(pointer)-1:nullptr;
     if (old && old->owner!=owner) {fail(old->category,Failure::ForeignOwner);return nullptr;}
@@ -71,9 +96,15 @@ class Memory {
     }
     // heap_caps_realloc preserves the original allocation on failure. Shrinking
     // never needs another full quota reservation, nor may it fall back to SRAM.
+    Header* before=old?old->before:nullptr;
+    Header* after=old?old->after:nullptr;
     auto* next=static_cast<Header*>(heap_caps_realloc(old,size+sizeof(Header),caps));
     if (!next) {fail(category,Failure::Heap);return nullptr;}
-    *next=Header{size,charge,owner,category,lifetime};
+    *next=Header{size,charge,owner,category,lifetime,before,after};
+    if(account) {
+      if(!pointer){next->after=account->head;if(account->head)account->head->before=next;account->head=next;}
+      else {if(before)before->after=next;else account->head=next;if(after)after->before=next;}
+    }
     usage.current=usage.current-previous+charge;usage.peak=std::max(usage.peak,usage.current);
     if (!pointer) ++usage.allocations;
     stats_.current=stats_.current-previous+charge;stats_.peak=std::max(stats_.peak,stats_.current);
@@ -103,14 +134,18 @@ class Memory {
  private:
   static constexpr unsigned caps=MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT;
   static constexpr size_t heapOverhead=32;
-  struct alignas(std::max_align_t) Header {size_t size,charge;Owner owner;Category category;Lifetime lifetime;};
-  struct OwnerAccount {Owner token=0;size_t bytes=0;bool active=false;};
+  struct alignas(std::max_align_t) Header {size_t size,charge;Owner owner;Category category;Lifetime lifetime;Header *before=nullptr,*after=nullptr;};
+  struct OwnerAccount {Owner token=0;size_t bytes=0;bool active=false;Header* head=nullptr;};
   OwnerAccount* find(Owner token) {if(token)for(auto& o:owners_)if(o.token==token)return &o;return nullptr;}
   void fail(Category category,Failure failure) {++stats_.categories[size_t(category)].failures;++stats_.failures[size_t(failure)];}
   void releaseLocked(Header* h) {
     if (!h) return;
     auto& usage=stats_.categories[size_t(h->category)];usage.current-=h->charge;--usage.allocations;stats_.current-=h->charge;
-    if (auto* o=find(h->owner)) o->bytes-=h->charge;
+    if (auto* o=find(h->owner)) {
+      o->bytes-=h->charge;
+      if(h->before)h->before->after=h->after;else o->head=h->after;
+      if(h->after)h->after->before=h->before;
+    }
     heap_caps_free(h);
   }
   std::mutex mutex_;
@@ -119,4 +154,15 @@ class Memory {
   uint32_t generation_=0;
 };
 inline void release(void* pointer) {Memory::get().releaseOwned(pointer);}
+template<class T> struct Destroy {
+  void operator()(T* pointer) const {if(pointer){std::destroy_at(pointer);release(pointer);}}
+};
+template<class T> using Pointer=std::unique_ptr<T,Destroy<T>>;
+template<class T,class... Args> Pointer<T> make(Category category,Args&&... args) {
+  auto* storage=Memory::get().allocate(sizeof(T),category);
+  if(!storage)return {};
+  new(storage) T{std::forward<Args>(args)...};
+  return Pointer<T>(static_cast<T*>(storage));
+}
+template<class T> using Buffer=std::unique_ptr<T,decltype(&release)>;
 }  // namespace freeink::resources

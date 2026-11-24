@@ -49,8 +49,21 @@ int main() {
   assert(!memory.allocate(1,Category::Application));
   assert(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)==65536);
   heap_caps_free(raw);
+  void* fragments[15];
+  for(auto& p:fragments){p=heap_caps_malloc(MiB,MALLOC_CAP_SPIRAM);assert(p);}
+  for(unsigned i=0;i<15;i+=2){heap_caps_free(fragments[i]);fragments[i]=nullptr;}
+  assert(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)>5*MiB/2+reserveBytes);
+  assert(!memory.allocate(5*MiB/2,Category::System));
+  assert(memory.snapshot().current==0);
+  for(auto p:fragments)heap_caps_free(p);
+  auto abandoned=memory.beginOwner(7);
+  auto first=memory.allocate(1024,Category::Application,abandoned);
+  assert(first && memory.allocate(1024,Category::Application,abandoned));
+  first=memory.reallocate(first,8192,Category::Application,abandoned);assert(first);
+  assert(memory.allocate(128,Category::Transient,abandoned));
+  assert(memory.reclaimOwner(abandoned)>0 && memory.ownerBytes(abandoned)==0);
   const auto stats=memory.snapshot();
-  assert(stats.failures[size_t(Failure::Heap)]==1);
+  assert(stats.failures[size_t(Failure::Heap)]==2);
   assert(stats.failures[size_t(Failure::GlobalReserve)]==1);
   assert(stats.failures[size_t(Failure::ForeignOwner)]==1);
   assert(stats.current==0 && stats.free==stats.capacity);
