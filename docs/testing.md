@@ -41,6 +41,12 @@ symbols beside the bundled decoder to prevent accidental use of an incompatible
 ESP ROM implementation. The consumer ELF and physical board still need checking
 because host tests do not use the ESP ROM linker script.
 
+The page compositor's Gray8 tests compare all four rotations with an independent
+scalar renderer, using every coverage level, negative bearings, clipping,
+padded rows, overlapping glyphs, synthetic bold and underline. The optimized
+glyph path writes contiguous physical rows, including portrait framebuffers.
+Device response-time measurements belong to the consumer's hardware report.
+
 ## Progressive JPEG
 
 ```sh

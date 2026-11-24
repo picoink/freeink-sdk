@@ -3,6 +3,7 @@
 #include "render/PageRenderer.h"
 
 #include <string.h>
+#include <algorithm>
 
 #include "render/ImageRenderer.h"
 
@@ -90,6 +91,37 @@ inline void inkPixel(const FrameTarget& t, int32_t x, int32_t y, uint8_t coverag
           (static_cast<uint32_t>(coverage - kInkFloor) * 255u) / (kInkSolid - kInkFloor);
       if (boosted >= kBayer4[y & 3][x & 3]) setBlack(t, x, y);
       break;
+    }
+  }
+}
+
+void grayGlyph(const FrameTarget& t, const GlyphBitmap& glyph, int32_t x, int32_t y) {
+  const bool portrait=t.rotation==FrameRotation::Portrait || t.rotation==FrameRotation::PortraitInverted;
+  const int32_t left=std::max<int32_t>(0,x),top=std::max<int32_t>(0,y);
+  const int32_t right=std::min<int32_t>(portrait?t.height:t.width,x+glyph.width);
+  const int32_t bottom=std::min<int32_t>(portrait?t.width:t.height,y+glyph.height);
+  if(right<=left || bottom<=top)return;
+  int32_t px=left,py=top,lx=left,ly=top,columns=right-left,rows=bottom-top;
+  int32_t columnStep=1,rowStep=glyph.width;
+  switch(t.rotation) {
+    case FrameRotation::Portrait:
+      px=top;py=t.height-right;lx=right-1;columnStep=glyph.width;rowStep=-1;std::swap(columns,rows);break;
+    case FrameRotation::PortraitInverted:
+      px=t.width-bottom;py=left;ly=bottom-1;columnStep=-glyph.width;rowStep=1;std::swap(columns,rows);break;
+    case FrameRotation::UpsideDown:
+      px=t.width-right;py=t.height-bottom;lx=right-1;ly=bottom-1;columnStep=-1;rowStep=-glyph.width;break;
+    case FrameRotation::None:break;
+  }
+  const int32_t start=(ly-y)*glyph.width+lx-x;
+  // Traverse physical rows, keeping PSRAM writes contiguous in portrait too.
+  // Clip/rotate once per glyph and preserve the scalar minimum-luminance blend.
+  for(int32_t row=0;row<rows;++row) {
+    const auto* source=glyph.pixels+start+row*rowStep;
+    auto* destination=t.framebuffer+(py+row)*t.widthBytes+px;
+    for(int32_t column=0;column<columns;++column) {
+      const auto coverage=source[column*columnStep];
+      if(coverage==255)destination[column]=0;
+      else if(coverage)destination[column]=std::min<uint8_t>(destination[column],255-coverage);
     }
   }
 }
@@ -185,6 +217,10 @@ uint32_t PageRenderer::renderText(const Page& page, FontChain& fonts, const Fram
         const int strikes =
             (run.styleFlags & StyleBold) != 0 && (faceFlags & StyleBold) == 0 ? 2 : 1;
         for (int s = 0; s < strikes; ++s) {
+          if(target.format==FrameFormat::Gray8) {
+            grayGlyph(target,*glyph,penX+glyph->xoff+s,run.baselineY+glyph->yoff);
+            continue;
+          }
           for (uint16_t gy = 0; gy < glyph->height; ++gy) {
             const uint8_t* srcRow = glyph->pixels + static_cast<uint32_t>(gy) * glyph->width;
             const int32_t dy = run.baselineY + glyph->yoff + gy;

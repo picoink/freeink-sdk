@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <initializer_list>
+#include <algorithm>
 
 namespace {
 
@@ -220,6 +221,48 @@ void testLayoutWithRealFont(const char* fixturesDir, TtfFont& font) {
   CHECK_EQ(sink.violations, 0);
 }
 
+void testGrayRotations() {
+  struct CoverageFont : RenderFont {
+    uint8_t pixels[256];
+    GlyphBitmap glyph{pixels,16,16,-3,-6,9};
+    CoverageFont(){for(unsigned i=0;i<256;++i)pixels[i]=i;}
+    bool hasGlyph(uint32_t) const override {return true;}
+    int16_t advance(uint32_t,uint16_t,uint8_t) override {return 9;}
+    int16_t lineHeight(uint16_t) override {return 28;}
+    int16_t ascent(uint16_t) override {return 20;}
+    const GlyphBitmap* rasterize(uint32_t,uint16_t) override {return &glyph;}
+  } font;
+  FontChain chain;CHECK(chain.add(&font));
+  constexpr int width=31,height=23,stride=37,guard=19;
+  uint8_t actual[guard+stride*height+guard],expected[sizeof(actual)];
+  for(auto rotation:{FrameRotation::None,FrameRotation::Portrait,FrameRotation::PortraitInverted,FrameRotation::UpsideDown})
+    for(int x:{-20,-2,4,24,40})for(int y:{-15,2,12,25,40})for(uint8_t style:{0,1,4,5}) {
+      for(unsigned i=0;i<sizeof(actual);++i)actual[i]=expected[i]=uint8_t(i*73+29);
+      FrameTarget target{actual+guard,width,height,stride,FrameFormat::Gray8,rotation};
+      PageTextRun run{"Aa",2,int16_t(x),int16_t(y),28,style};
+      Page page{};page.runs=&run;page.runCount=1;
+      CHECK_EQ(PageRenderer::renderText(page,chain,target),0u);
+      auto pixel=[&](int lx,int ly,uint8_t coverage) {
+        int px=lx,py=ly;
+        switch(rotation) {
+          case FrameRotation::None:break;
+          case FrameRotation::Portrait:px=ly;py=height-1-lx;break;
+          case FrameRotation::PortraitInverted:px=width-1-ly;py=lx;break;
+          case FrameRotation::UpsideDown:px=width-1-lx;py=height-1-ly;break;
+        }
+        if(px>=0 && py>=0 && px<width && py<height) {
+          auto& value=expected[guard+py*stride+px];value=std::min<uint8_t>(value,255-coverage);
+        }
+      };
+      for(int character=0;character<2;++character)
+        for(int strike=0;strike<((style&StyleBold)?2:1);++strike)
+          for(int gy=0;gy<16;++gy)for(int gx=0;gx<16;++gx)
+            pixel(x+character*9-3+gx+strike,y-6+gy,font.pixels[gy*16+gx]);
+      if(style&StyleUnderline)for(int row=0;row<2;++row)for(int col=0;col<18;++col)pixel(x+col,y+3+row,255);
+      CHECK(!std::memcmp(actual,expected,sizeof(actual)));
+    }
+}
+
 void testPageRenderer(const char* fixturesDir, TtfFont& font) {
   char path[1024];
   std::snprintf(path, sizeof(path), "%s/minimal.epub", fixturesDir);
@@ -319,6 +362,7 @@ int main(int argc, char** argv) {
   testFontChain(font, second);
   testLayoutWithRealFont(argv[1], font);
   testPageRenderer(argv[1], font);
+  testGrayRotations();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
