@@ -24,7 +24,13 @@ static void closed() {
 int main() {
   auto &host = BleKeyboardHost::getInstance();
   BluetoothHost::acquire(BluetoothHost::Profile::Pan);
+  failEventAllocation=true;
+  assert(!host.begin());
+  assert(BluetoothHost::leases==1 && !accepting.load());
+  failEventAllocation=false;
   assert(host.begin());
+  assert(eventAllocationCaps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+  assert(eventAllocationBytes==24*sizeof(Event));
   assert(!host.connect("broken"));
   registered();
   // Stop while configuring a scan: late start must never outlive the lease.

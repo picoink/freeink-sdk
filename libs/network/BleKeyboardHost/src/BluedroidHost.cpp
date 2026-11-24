@@ -13,6 +13,7 @@
 #include <cstring>
 #include <esp_gap_ble_api.h>
 #include <esp_gattc_api.h>
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -99,7 +100,9 @@ struct Event {
   uint8_t data[512]{};
 };
 StaticQueue_t controlQueueStorage, dataQueueStorage;
-uint8_t controlBytes[16 * sizeof(Event)], dataBytes[8 * sizeof(Event)];
+// Callback payloads are task data, not ISR/DMA buffers. Allocate them only when
+// HID starts, in PSRAM where available, leaving internal RAM for task stacks.
+uint8_t* eventBytes = nullptr;
 QueueHandle_t controlQueue = nullptr, dataQueue = nullptr;
 std::atomic<bool> accepting{false}, overflow{false};
 void enqueue(const Event &e, bool data = false) {
@@ -422,10 +425,18 @@ bool BleKeyboardHost::begin(const char *) {
   if (begun_)
     return true;
   if (!controlQueue) {
-    controlQueue = xQueueCreateStatic(16, sizeof(Event), controlBytes,
+    const unsigned caps=MALLOC_CAP_8BIT |
+#if CONFIG_SPIRAM
+        MALLOC_CAP_SPIRAM;
+#else
+        MALLOC_CAP_INTERNAL;
+#endif
+    eventBytes=static_cast<uint8_t*>(heap_caps_malloc(24*sizeof(Event),caps));
+    if (!eventBytes) return false;
+    controlQueue = xQueueCreateStatic(16, sizeof(Event), eventBytes,
                                       &controlQueueStorage);
     dataQueue =
-        xQueueCreateStatic(8, sizeof(Event), dataBytes, &dataQueueStorage);
+        xQueueCreateStatic(8, sizeof(Event), eventBytes+16*sizeof(Event), &dataQueueStorage);
   }
   xQueueReset(controlQueue);
   xQueueReset(dataQueue);
