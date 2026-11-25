@@ -128,6 +128,9 @@ Covers `FtFont::RenderOptions` (every `HintingMode` plus monochrome) against a
 real bundled font, plus a minimal build with none of the three
 `FREEINK_FONT_ENABLE_*` flags set to confirm existing consumers see no change
 in output and unsupported requests are reported rather than silently degraded.
+Also compares width-only advances against full glyph metrics across sizes,
+hinting modes, Latin/CJK characters and synthetic styles. Set
+`FREEINK_FONT_ADVANCE_FIXTURE` to an additional device font to test its metrics.
 
 Covers `FtFont::ligature()`/`ligatureGlyphId()` (GSUB-based) against a real
 bundled font: exact-value assertions for the five standard Latin ligatures,
