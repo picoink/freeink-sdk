@@ -24,6 +24,14 @@ int main() {
   runtime().outputRoot = (root / "output").string();
   CHECK(SdMan.begin());
   CHECK(!freeink::PowerManager::wokeFromSleep());
+  using Receipt=freeink::PowerManager::WakeReceipt;
+  CHECK(freeink::PowerManager::consumeWakeReceipt(42)==Receipt::Unavailable);
+  freeink::PowerManager::armWakeReceipt(42);
+  CHECK(freeink::PowerManager::consumeWakeReceipt(41)==Receipt::Unavailable);
+  CHECK(freeink::PowerManager::consumeWakeReceipt(42)==Receipt::Ready);
+  CHECK(freeink::PowerManager::consumeWakeReceipt(42)==Receipt::Consumed);
+  freeink::PowerManager::armWakeReceipt(42);
+  CHECK(freeink::PowerManager::consumeWakeReceipt(42)==Receipt::Ready);
   setDevice("wake_from_sleep", Json(true));
   CHECK(freeink::PowerManager::wokeFromSleep());
   setDevice("wake_from_sleep", Json(false));

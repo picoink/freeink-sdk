@@ -64,6 +64,7 @@ enum EpdDrawMode modeFor(RefreshMode mode) {
   switch (mode) {
     case RefreshMode::Full:
     case RefreshMode::Half:
+    case RefreshMode::TextClean:
       return MODE_GC16;
     case RefreshMode::TextStatus:
     case RefreshMode::Text:
@@ -190,7 +191,16 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
   enum EpdDrawError err;
   if (!_panelKnown) {
     err = epd_clear_checked();
-    if (err == EPD_DRAW_SUCCESS) err = epd_hl_update_screen_from_white(&_hl, MODE_GC16, temperature());
+    if (err == EPD_DRAW_SUCCESS) {
+      const auto* waveform=_hl.waveform;
+      auto firstMode=MODE_GC16;
+      if(_jobGray4) {
+        _hl.waveform=_cfg.readingWaveform;firstMode=MODE_GL16;
+        if(_cfg.initOptions & EPD_LUT_4K)firstMode=static_cast<EpdDrawMode>(firstMode|MODE_GL4_COMPACT);
+      }
+      err=epd_hl_update_screen_from_white(&_hl,firstMode,temperature());
+      _hl.waveform=waveform;
+    }
   } else if (full) {
     const auto* waveform = _hl.waveform;
     if (_cfg.whiteRefreshWaveform) {
@@ -243,7 +253,7 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
   _finishedAt=micros();
   _metrics.worker_us=_finishedAt-workerAt;
   _metrics.clean=full || !_panelKnown;_metrics.reading=_jobReading;
-  _metrics.gray_levels=_jobGray4 && !_metrics.clean?4:16;
+  _metrics.gray_levels=_jobGray4 && !_metrics.recovered?4:16;
   // An interrupted waveform needs explicit resync before another scan.
   if(err==EPD_DRAW_SUCCESS){if(full || !_panelKnown)_readingTurns=0;else if(_jobReading)++_readingTurns;}
   _panelKnown = err == EPD_DRAW_SUCCESS;
@@ -283,9 +293,9 @@ bool EpdiyDriver::displayGray8Start(EpdBus& bus, const uint8_t* pixels, uint16_t
   displayFinish(bus, nullptr);
   const auto g = geometry();
   if (!_ready || !pixels || stride < g.width || _faulted) { _success.store(false); return false; }
-  _jobReading=mode==RefreshMode::Text || mode==RefreshMode::Text16;
-  _jobFull=mode==RefreshMode::Full || mode==RefreshMode::Half || (_jobReading && _readingTurns>=13);
-  _jobGray4=(mode==RefreshMode::Text || mode==RefreshMode::TextStatus) && _cfg.readingWaveform && _rawTarget && !_gray4Disabled && !_jobFull && _panelKnown;
+  _jobReading=mode==RefreshMode::Text || mode==RefreshMode::Text16 || mode==RefreshMode::TextClean;
+  _jobFull=mode==RefreshMode::Full || mode==RefreshMode::Half || mode==RefreshMode::TextClean || (_jobReading && _readingTurns>=13);
+  _jobGray4=(mode==RefreshMode::Text || mode==RefreshMode::TextStatus || mode==RefreshMode::TextClean) && _cfg.readingWaveform && _rawTarget && !_gray4Disabled && (!_jobFull || !_panelKnown);
   _lastBaseMode = _jobFull ? MODE_GC16 : MODE_GL16;
   if(_worker){_targetReady.store(false);_queuedAt=micros();_working.store(true);xTaskNotifyGive(_worker);}
   auto* dst = epd_hl_get_framebuffer(&_hl);

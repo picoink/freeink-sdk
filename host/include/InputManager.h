@@ -21,6 +21,7 @@ class InputManager {
   };
   enum class HostSource : uint8_t { Desktop, Protocol, Count };
   static constexpr unsigned long HOME_KEY_LONG_PRESS_MS = 700;
+  void prepareBoot() {}
   void begin() {}
   bool beginAsync(unsigned = 2, unsigned = 10, uint8_t capacity = 32, bool ordered = false);
   void setHomeLongPressMs(uint32_t ms) { if (!running_) homeLongPressMs_ = ms ? ms : 1; }

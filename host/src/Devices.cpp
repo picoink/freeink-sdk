@@ -59,12 +59,12 @@ void EInkDisplay::begin() {
 }
 void EInkDisplay::displayBufferAsync(RefreshMode mode) {
   publishFrame(buffer_, getDisplayWidth(), getDisplayHeight());
-  busyUntil_ = nowMs() + (mode == FULL_REFRESH ? runtime().displayFullMs : runtime().displayFastMs);
+  busyUntil_ = nowMs() + ((mode == FULL_REFRESH || mode == TEXT_CLEAN_REFRESH) ? runtime().displayFullMs : runtime().displayFastMs);
 }
 bool EInkDisplay::displayGray8BufferAsync(const uint8_t* pixels, uint16_t stride, RefreshMode mode) {
   if (!pixels || stride < getDisplayWidth() || refreshBusy()) return false;
   publishFrame(pixels, getDisplayWidth(), getDisplayHeight(), stride);
-  busyUntil_ = nowMs() + (mode == FULL_REFRESH ? runtime().displayFullMs : runtime().displayFastMs);
+  busyUntil_ = nowMs() + ((mode == FULL_REFRESH || mode == TEXT_CLEAN_REFRESH) ? runtime().displayFullMs : runtime().displayFastMs);
   return true;
 }
 void EInkDisplay::displayBuffer(RefreshMode mode, bool) {
@@ -265,6 +265,14 @@ bool UsbMassStorage::hostConnected() const {
 }
 bool PowerManager::armPowerButtonWakeup(bool) { return !fault("wake"); }
 bool PowerManager::wokeFromSleep() { return deviceBool("wake_from_sleep", false); }
+void PowerManager::armWakeReceipt(uint32_t token) {
+  setDevice("wake_receipt",number(token));setDevice("wake_receipt_consumed",Json(false));
+}
+PowerManager::WakeReceipt PowerManager::consumeWakeReceipt(uint32_t token) {
+  if(deviceNumber("wake_receipt",-1)!=token)return WakeReceipt::Unavailable;
+  if(deviceBool("wake_receipt_consumed",false))return WakeReceipt::Consumed;
+  setDevice("wake_receipt_consumed",Json(true));return WakeReceipt::Ready;
+}
 void PowerManager::powerDownRailsForSleep() {}
 PowerManager::AbortedSleepInfo PowerManager::takeAbortedSleepInfo() { return {}; }
 void PowerManager::waitForPowerButtonRelease() {}

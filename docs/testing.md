@@ -484,3 +484,26 @@ Physical observations are tracked by the PicoInk consumer. A 2026-11-25
 30-turn test on S31 completed without scan faults after the readiness change,
 and the user confirmed normal text and screen appearance. This is a single
 board result, not evidence for all temperatures or supply conditions.
+
+`sh libs/hardware/BoardConfig/test/host/run_metalio_plus.sh` also checks early
+FT6336U reset preparation. `InputManager::prepareBoot()` starts the existing
+10 ms low pulse before storage initialization; `begin()` waits out any remaining
+300 ms high interval before probing. Repeated preparation does not restart the
+clock, and calling `begin()` alone retains the original full wait. No touch
+settling interval is shortened. Input and ordered-queue host suites and the
+Metalio build pass; physical wake timing is recorded by the consumer.
+
+Wake handoffs can arm a 16-byte retained receipt after durable publication.
+`PowerManager::consumeWakeReceipt()` distinguishes a fresh, consumed or unavailable
+receipt. Consumers must check the wake reason, consume before application code,
+and use durable consumption when RTC retention is unavailable. Host state carries
+receipts through simulator process resets; backend tests cover mismatches,
+repeat consumption and re-arming identical checkpoints. This removes no durable
+progress write and does not treat an ordinary reset as a sleep wake.
+
+`TEXT_CLEAN_REFRESH` retains the complete unknown-panel clear sequence, then draws
+fast text with the selected 24-phase reading waveform. Known-panel cleaning keeps
+the board's existing white-conditioning waveform. UI and high-quality text keep
+16-gray targets. The EPDiy worker test checks initial clearing, waveform selection,
+source immutability and subsequent cleaning. Physical startup timing and optical
+checks remain consumer evidence, separate from these host checks.

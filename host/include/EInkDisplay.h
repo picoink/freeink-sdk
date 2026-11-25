@@ -5,7 +5,7 @@
 #include "Arduino.h"
 class EInkDisplay {
  public:
-  enum RefreshMode { FULL_REFRESH, HALF_REFRESH, FAST_REFRESH, TEXT_REFRESH, TEXT16_REFRESH, TEXT_STATUS_REFRESH };
+  enum RefreshMode { FULL_REFRESH, HALF_REFRESH, FAST_REFRESH, TEXT_REFRESH, TEXT16_REFRESH, TEXT_STATUS_REFRESH, TEXT_CLEAN_REFRESH };
   EInkDisplay(int8_t, int8_t, int8_t, int8_t, int8_t, int8_t) {}
   ~EInkDisplay();
   EInkDisplay(const EInkDisplay&) = delete;

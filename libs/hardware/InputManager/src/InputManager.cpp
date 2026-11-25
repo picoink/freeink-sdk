@@ -106,6 +106,13 @@ InputManager::InputManager()
 static constexpr uint32_t METALIO_BOOT_WAIT_MS = 3000;
 #endif
 
+void InputManager::prepareBoot() {
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  if(BoardConfig::isMetalioEInk4Plus() && freeink::metalio_plus::ensureBooted(METALIO_BOOT_WAIT_MS))
+    freeink::metalio_plus::prepareTouchReset();
+#endif
+}
+
 void InputManager::begin() {
 #if FREEINK_DEVICE_PICCO
   // pinMode preserves wake interrupt types; a held polled button must not trigger a level ISR.

@@ -96,6 +96,20 @@ int main() {
     driver.begin(bus);
     assert(driver.supportsAsyncDisplay() && panel::inits == 2);
   }
+  {
+    EpdiyDriver driver(testConfig());driver.begin(bus);
+    std::array<uint8_t,128> gray{};
+    for(unsigned i=0;i<gray.size();++i)gray[i]=uint8_t(i*2);
+    const auto original=gray;const unsigned clears=panel::clears;
+    driver.displayGray8Start(bus,gray.data(),16,RefreshMode::TextClean);driver.displayFinish(bus,nullptr);
+    assert(gray==original && panel::clears==clears+1);
+    assert(panel::lastKind==0 && panel::lastMode==MODE_GL16);
+    assert(panel::lastWaveform==testConfig().readingWaveform);
+    assert(driver.lastRefreshMetrics().clean && driver.lastRefreshMetrics().gray_levels==4);
+    driver.displayGray8Start(bus,gray.data(),16,RefreshMode::TextClean);driver.displayFinish(bus,nullptr);
+    assert(panel::clears==clears+1 && panel::lastKind==1);
+    assert(panel::lastWaveform==testConfig().whiteRefreshWaveform && gray==original);
+  }
   joinTasks();
   failTaskAllocation = true;
   {

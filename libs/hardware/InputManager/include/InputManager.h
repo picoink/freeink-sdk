@@ -21,6 +21,8 @@
 class InputManager {
  public:
   InputManager();
+  // Optional early boot hook; overlaps board reset settling with storage init.
+  void prepareBoot();
   void begin();
   // A4: stop touch and release the shared I2C bus after all other bus users finish.
   bool prepareForDeepSleep();

@@ -32,7 +32,7 @@ class FreeInkDisplay {
   ~FreeInkDisplay() = default;
 
   // Refresh modes (public contract — full / balanced-half / fast).
-  enum RefreshMode { FULL_REFRESH, HALF_REFRESH, FAST_REFRESH, TEXT_REFRESH, TEXT16_REFRESH, TEXT_STATUS_REFRESH };
+  enum RefreshMode { FULL_REFRESH, HALF_REFRESH, FAST_REFRESH, TEXT_REFRESH, TEXT16_REFRESH, TEXT_STATUS_REFRESH, TEXT_CLEAN_REFRESH };
 
   // Select panel geometry/controller before begin().
   void setDisplayX3();
