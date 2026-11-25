@@ -16,7 +16,15 @@ enum class Category : uint8_t { System, Application, Document, Font, Database, F
 enum class Lifetime : uint8_t { System, Application, Session, Operation, Cache };
 enum class Failure : uint8_t { None, CategoryLimit, GlobalReserve, Heap, StaleOwner, ForeignOwner, Overflow, Count };
 using Owner = uint64_t;
+#if defined(ESP_PLATFORM) && defined(__riscv)
+// Keep a real, aligned TLS data section even when every initializer is zero.
+// An empty .tdata can become non-TLS linker padding: FreeRTOS then copies from
+// a different base than PT_TLS, shifting every task-local variable. Reuse this
+// existing 8-byte slot rather than adding a separate per-task anchor.
+inline thread_local Owner currentOwner __attribute__((section(".tdata.freeink_owner")))=0;
+#else
 inline thread_local Owner currentOwner=0;
+#endif
 class OwnerScope {
  public:
   explicit OwnerScope(Owner owner):previous_(currentOwner){currentOwner=owner;}

@@ -538,3 +538,19 @@ from approximately 269/280 ms to 112/114 ms per normal GL4 update. Those are
 measured producer timings, not a claim of the same reduction in panel latency.
 The complete lifecycle/concurrency acceptance remains in PicoInk's validation
 report, including its separately recorded optical confirmation.
+
+## RISC-V task-local layout
+
+`python3 tools/firmware/test_tls_layout.py` verifies the ELF layout gate.
+Metalio consumers install `post:freeink-sdk/tools/firmware/platformio_tls_gate.py`
+as a PlatformIO extra script and run `check_tls_layout.py firmware.elf` before
+flashing retained binaries. The gate compares PT_TLS against the exact linker
+symbols used by FreeRTOS to copy initialized bytes and zero task-local state.
+
+GCC can emit every zero-initialized task local into `.tbss`. An empty `.tdata`
+then becomes ordinary alignment padding: the FreeRTOS copy base may precede
+PT_TLS by four bytes. A layout-only code change reproduced a nonzero read-only
+storage flag at boot. ResourceMemory places its existing zero-initialized Owner
+slot in a real aligned TLS data section, with no extra per-task bytes. Build
+validation remains necessary if a consumer changes linker scripts or introduces
+larger-alignment task locals. This is separate from TLS network encryption.
