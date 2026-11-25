@@ -397,13 +397,17 @@ also checks unaligned packed difference input, every width from 1 to 1216, and o
 tails. The driver suite injects a failed scan and verifies that automatic retries
 cannot clear or scan the panel again until an explicit resync.
 
-The S31 scheduler holds two complete phases and waits for full-phase prefill.
-The CPU servicing LCD/DMA interrupts prepares 13 of every 32 rows, and the
-other CPU prepares 19. The split follows measured feeder completion times,
-including interrupt work. The next phase can prepare once both feeders finish,
-while the LCD consumes the current immutable phase. LCD and DMA interrupts
-share a CPU and cancellation waits for their old callbacks before recycling data.
-Other LCD targets retain alternating ownership. EPDiy exposes separate power,
+The S31 full-phase scheduler balances row preparation across both CPUs. One
+complete phase fits in the row queues; two immutable PSRAM wire images exchange
+preparation/scan ownership. The next image is packed while the prior image scans,
+without altering the active descriptor chain or completion cursor. This replaces
+the second queued phase within the existing System budget. Direct DMA removes
+the eight-row refill interrupt deadline; a latched hardware EOF still has to
+confirm payload consumption at physical panel completion. The host fake verifies
+overlapping packing, exact phase bytes, small queue capacity and cancellation of
+an already prepared next image. Streaming S31 retains its measured 13:19 feeder
+split. Cancellation waits for old callbacks before recycling data. Other LCD
+targets retain alternating ownership. EPDiy exposes separate power,
 preparation, waveform-cycle, actual scanning and completion timings through
 `RefreshMetrics`; the API contains no ESP-IDF types.
 
@@ -417,8 +421,12 @@ frame before reopening input. The PicoInk surface test distinguishes a new
 successful presentation timestamp from stale success or another failed attempt,
 including an intervening status read.
 
-The LCD clear row is reserved at renderer initialization with internal DMA SRAM
-capabilities and retained until deinitialization (304 bytes on Metalio Plus).
+The LCD clear row is reserved at renderer initialization and retained until
+deinitialization (304 bytes on Metalio Plus). Streaming LCD targets use internal
+DMA SRAM. The S31 full-phase path invokes its callback only while packing on a
+task, so its clear row, 4 KiB waveform table and 304-byte mask now use managed
+PSRAM. These 4704 bytes no longer compete with radio SRAM, without changing the
+System quota. DMA descriptors and interrupt completion metadata stay internal.
 On S31, ordinary `malloc` and `MALLOC_CAP_INTERNAL` may fall back to LP RAM;
 an ISR reading the clear row there missed the bounce-buffer refill interval.
 The pipeline suite now checks cropped black, white and neutral clear pixels,
@@ -538,6 +546,13 @@ from approximately 269/280 ms to 112/114 ms per normal GL4 update. Those are
 measured producer timings, not a claim of the same reduction in panel latency.
 The complete lifecycle/concurrency acceptance remains in PicoInk's validation
 report, including its separately recorded optical confirmation.
+
+`host_resource_governance` also tests lazy recovery of reclaimed shared font-file
+blocks. Recovery may select a smaller cache than originally requested, leaves
+64 KiB of font workspace and respects global/physical reserve admission. A full
+quota reads directly without repeated allocation failures; after pressure is
+released, subsequent reads become cache hits again. `font_workers` additionally
+reclaims the cache from inside a miss callback to check lock and generation safety.
 
 ## RISC-V task-local layout
 

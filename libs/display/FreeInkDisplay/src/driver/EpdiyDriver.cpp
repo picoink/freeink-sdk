@@ -21,6 +21,10 @@ extern "C" void* epd_allocate_line_queue(size_t bytes) {
   return freeink::resources::allocateAligned(bytes,16,freeink::resources::Category::System,0,freeink::resources::Lifetime::System);
 }
 extern "C" void epd_release_line_queue(void* pointer) {freeink::resources::releaseAligned(pointer);}
+extern "C" void* epd_allocate_dma_phase(size_t bytes) {
+  return freeink::resources::allocateAligned(bytes,64,freeink::resources::Category::System,0,freeink::resources::Lifetime::System);
+}
+extern "C" void epd_release_dma_phase(void* pointer) {freeink::resources::releaseAligned(pointer);}
 #endif
 
 #ifndef FREEINK_EPDIY_CONFIG
@@ -289,7 +293,7 @@ bool EpdiyDriver::displayStart(EpdBus& bus, const uint8_t* fb, const uint8_t* pr
   _queuedAt=micros(); _working.store(true); xTaskNotifyGive(_worker);
   return true;
 }
-bool EpdiyDriver::displayGray8Start(EpdBus& bus, const uint8_t* pixels, uint16_t stride, RefreshMode mode) {
+__attribute__((optimize("O3"))) bool EpdiyDriver::displayGray8Start(EpdBus& bus, const uint8_t* pixels, uint16_t stride, RefreshMode mode) {
   displayFinish(bus, nullptr);
   const auto g = geometry();
   if (!_ready || !pixels || stride < g.width || _faulted) { _success.store(false); return false; }
