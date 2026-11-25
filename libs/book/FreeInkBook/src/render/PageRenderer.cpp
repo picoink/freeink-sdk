@@ -210,6 +210,12 @@ uint32_t PageRenderer::renderText(const Page& page, FontChain& fonts, const Fram
       const GlyphBitmap* glyph = font != nullptr ? font->rasterize(cp, run.sizePx) : nullptr;
       if (glyph == nullptr && cp != ' ' && cp != 0xA0) {
         if (missing++ == 0 && firstMissingOut != nullptr) *firstMissingOut = cp;
+        // Preserve the missing-codepoint report while making genuine font gaps
+        // visible. The owning service rejects transient font failures.
+        const int w=std::max<int>(4,run.sizePx/2), h=std::max<int>(4,run.sizePx*3/4);
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x)
+          if(x==0 || y==0 || x==w-1 || y==h-1)
+            inkPixel(target,penX+x,run.baselineY-h+y,255);
       }
       if (glyph != nullptr) {
         // Synthetic bold (double-strike, +1 px) when the run wants bold but
