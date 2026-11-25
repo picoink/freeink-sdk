@@ -60,14 +60,19 @@ class EpdiyDriver : public PanelDriver {
 
  private:
   bool update(enum EpdDrawMode mode, bool full);
+  bool ensureOverlayPlanes();
   void prepare(const uint8_t* fb, RefreshMode mode);
   static void runWorker(void* context);
   void stopWorker();
   TaskHandle_t _worker = nullptr;
+  std::atomic<bool> _targetReady{true};
   std::atomic<bool> _working{false}, _stop{false}, _exited{true}, _success{true};
   RefreshMetrics _metrics{};
   uint32_t _queuedAt=0, _finishedAt=0;
-  bool _jobFull = false;
+  bool _jobFull = false, _jobReading=false, _jobGray4=false;
+  uint8_t _readingTurns=0;
+  bool _gray4Disabled=false;
+  uint8_t* _rawTarget=nullptr;
   int temperature() const;
 
   const EpdiyConfig& _cfg;

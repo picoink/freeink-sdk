@@ -23,6 +23,7 @@ struct EpdiyConfig {
   // Only used when the previous optical frame is known; recovery still clears it.
   const EpdWaveform* whiteRefreshWaveform = nullptr;
   enum EpdDrawMode whiteRefreshMode = MODE_GL16;
+  const EpdWaveform* readingWaveform = nullptr; // Four-gray targets, all sixteen source levels.
 };
 
 }  // namespace freeink

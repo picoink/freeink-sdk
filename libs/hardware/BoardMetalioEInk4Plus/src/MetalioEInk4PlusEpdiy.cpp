@@ -18,6 +18,8 @@ extern "C" {
 #include "output_lcd/lcd_driver.h"  // EPDiy C header without C++ guards
 }
 #include "waveform/my_waveform.h"
+#include "waveform/e0470_gl4.h"
+#include <ResourceMemory.h>
 
 namespace freeink {
 namespace {
@@ -212,11 +214,27 @@ const EpdBoardDefinition kBoard = {
 
 }  // namespace
 
+static const EpdWaveform* readingGl4() {
+  static EpdWaveformPhases phases{};
+  static const EpdWaveformPhases* ranges[]{&phases};
+  static const EpdWaveformMode mode{MODE_GL16,1,ranges};
+  static const EpdWaveformMode* modes[]{&mode};
+  static const EpdWaveformTempInterval interval{0,50};
+  static const EpdWaveform waveform{1,1,modes,&interval};
+  if(phases.luts)return &waveform;
+  const EpdWaveformPhases* source=nullptr;
+  for(int i=0;i<MY_WAVEFORM.num_modes;++i)if(MY_WAVEFORM.mode_data[i]->type==MODE_GL16)source=MY_WAVEFORM.mode_data[i]->range_data[0];
+  auto* data=static_cast<uint8_t (*)[16][4]>(resources::Memory::get().allocate(48*16*4,resources::Category::System,0,resources::Lifetime::System));
+  if(!data)return nullptr;
+  const auto count=e0470_gl4_build(source,data);
+  if(count!=24){resources::release(data);return nullptr;}
+  phases={count,reinterpret_cast<const uint8_t*>(data),nullptr};return &waveform;
+}
 const EpdiyConfig& metalioEInk4PlusEpdiyConfig() {
   static EpdiyConfig config = [] {
     my_waveform_init();  // must precede epd_hl_init()
     return EpdiyConfig{&kBoard, &E0470A14_AF, my_waveform_fast(), EPD_LUT_1K, 1200, 25, true,
-                      my_waveform_wipe_gl(0), MODE_GL16};
+                      my_waveform_wipe_gl(0), MODE_GL16, readingGl4()};
   }();
   return config;
 }

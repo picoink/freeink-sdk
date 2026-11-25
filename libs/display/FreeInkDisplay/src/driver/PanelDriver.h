@@ -20,7 +20,7 @@
 
 namespace freeink {
 
-enum class RefreshMode : uint8_t { Full, Half, Fast };
+enum class RefreshMode : uint8_t { Full, Half, Fast, Text, Text16, TextStatus };
 enum class GrayPlane : uint8_t { Lsb, Msb };
 
 struct PanelGeometry {

@@ -5,8 +5,8 @@ namespace freeink {
 const EpdiyConfig& testConfig() {
   static EpdBoardDefinition board;
   static EpdDisplay_t display;
-  static EpdWaveform normal, white;
-  static EpdiyConfig config{&board, &display, &normal, EPD_LUT_1K, 1200, 25, true, &white, MODE_GL16};
+  static EpdWaveform normal, white, reading;
+  static EpdiyConfig config{&board, &display, &normal, EPD_LUT_1K, 1200, 25, true, &white, MODE_GL16, &reading};
   return config;
 }
 }
@@ -43,6 +43,20 @@ int main() {
       driver.displayFinish(bus,nullptr);
       for (unsigned i=0;i<64;++i)
         assert(panel::framebuffer[i]==uint8_t(((base+2*i+8)/17) | (((base+2*i+9)/17)<<4)));
+    }
+    for(unsigned page=0;page<14;++page) {
+      for(unsigned i=0;i<gray.size();++i)gray[i]=uint8_t(i*2);
+      const auto original=gray;
+      driver.displayGray8Start(bus,gray.data(),16,RefreshMode::Text);driver.displayFinish(bus,nullptr);
+      assert(gray==original);
+      if(page==13)assert(panel::lastKind==1 && panel::lastWaveform==testConfig().whiteRefreshWaveform);
+      else {
+        assert(panel::lastKind==2 && panel::lastWaveform==testConfig().readingWaveform);
+        for(unsigned i=0;i<64;++i)assert(panel::framebuffer[i]==uint8_t(5*(((original[2*i]+8)/17)>>2) | (5*(((original[2*i+1]+8)/17)>>2)<<4)));
+        // Footer repaint does not consume the body-cleaning cadence.
+        driver.displayGray8Start(bus,gray.data(),16,RefreshMode::TextStatus);driver.displayFinish(bus,nullptr);
+        assert(panel::lastKind==2 && panel::lastWaveform==testConfig().readingWaveform);
+      }
     }
     const unsigned knownClears = panel::clears;
     driver.displayStart(bus, frame.data(), nullptr, RefreshMode::Full, false);

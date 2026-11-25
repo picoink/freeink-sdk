@@ -65,6 +65,9 @@ enum EpdDrawMode modeFor(RefreshMode mode) {
     case RefreshMode::Full:
     case RefreshMode::Half:
       return MODE_GC16;
+    case RefreshMode::TextStatus:
+    case RefreshMode::Text:
+    case RefreshMode::Text16:
     case RefreshMode::Fast:
       break;
   }
@@ -118,16 +121,21 @@ void EpdiyDriver::begin(EpdBus& bus) {
   if (_hl.front_fb == nullptr) {
     _hl = epd_hl_init(_cfg.waveform ? _cfg.waveform : _cfg.display->default_waveform);
   }
-  const uint32_t planeBytes = geometry().bufferSize;
-  if (_lsb == nullptr) _lsb = static_cast<uint8_t*>(heap_caps_malloc(planeBytes, MALLOC_CAP_SPIRAM));
-  if (_msb == nullptr) _msb = static_cast<uint8_t*>(heap_caps_malloc(planeBytes, MALLOC_CAP_SPIRAM));
-  if (_lsb) memset(_lsb, 0, planeBytes);
-  if (_msb) memset(_msb, 0, planeBytes);
+  if(_cfg.readingWaveform && !_rawTarget) {
+#if __has_include(<ResourceMemory.h>)
+    _rawTarget=static_cast<uint8_t*>(resources::Memory::get().allocate(size_t(geometry().width)*geometry().height/2,resources::Category::System,0,resources::Lifetime::System));
+#else
+    _rawTarget=static_cast<uint8_t*>(heap_caps_malloc(size_t(geometry().width)*geometry().height/2,MALLOC_CAP_SPIRAM));
+#endif
+  }
+  // Gray8 readers do not use legacy monochrome overlay planes. Allocate them
+  // only when requested, leaving room for immutable phase preparation.
+  if(!_cfg.readingWaveform)ensureOverlayPlanes();
 #if __has_include(<ResourceMemory.h>)
   auto account=[](const void* pointer,size_t bytes){return !pointer || resources::Memory::get().accountPermanent(pointer,bytes+32);};
   const size_t frameBytes=size_t(geometry().width)*geometry().height/2;
   const bool accounted=account(_hl.front_fb,frameBytes) && account(_hl.back_fb,frameBytes) &&
-    account(_hl.difference_fb,2*frameBytes) && account(_lsb,planeBytes) && account(_msb,planeBytes);
+    account(_hl.difference_fb,2*frameBytes);
 #else
   const bool accounted=true;
 #endif
@@ -176,6 +184,9 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
   _queuedAt=0;
   epd_poweron();
   const auto poweredAt=micros();
+  // The submitter owns the source only until return. Rails can rise while it
+  // packs the immutable target, but the scan cannot observe partial pixels.
+  while(!_targetReady.load(std::memory_order_acquire))delay(1);
   enum EpdDrawError err;
   if (!_panelKnown) {
     err = epd_clear_checked();
@@ -189,7 +200,19 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
     err = epd_hl_update_screen_full(&_hl, mode, temperature());
     _hl.waveform = waveform;
   } else {
+    const auto* waveform=_hl.waveform;
+    if(_jobGray4)_hl.waveform=_cfg.readingWaveform;
     err = epd_hl_update_screen(&_hl, mode, temperature());
+    _hl.waveform=waveform;
+  }
+  if(err!=EPD_DRAW_SUCCESS && _jobGray4) {
+    // Disable the optional waveform for this boot, and recover the immutable
+    // original 16-gray candidate once. Never replay a partial optical baseline.
+    _gray4Disabled=true;_metrics.recovered=1;
+    memcpy(_hl.front_fb,_rawTarget,size_t(geometry().width)*geometry().height/2);
+    err=epd_clear_checked();
+    if(err==EPD_DRAW_SUCCESS)err=epd_hl_update_screen_from_white(&_hl,MODE_GC16,temperature());
+    full=true;
   }
   const auto updatedAt=micros();
   epd_poweroff();
@@ -215,7 +238,10 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
   _metrics.highlevel_us=(updatedAt-poweredAt)-scan.cycle_us;
   _finishedAt=micros();
   _metrics.worker_us=_finishedAt-workerAt;
+  _metrics.clean=full || !_panelKnown;_metrics.reading=_jobReading;
+  _metrics.gray_levels=_jobGray4 && !_metrics.clean?4:16;
   // An interrupted waveform needs explicit resync before another scan.
+  if(err==EPD_DRAW_SUCCESS){if(full || !_panelKnown)_readingTurns=0;else if(_jobReading)++_readingTurns;}
   _panelKnown = err == EPD_DRAW_SUCCESS;
   _faulted = !_panelKnown;
   _success.store(_panelKnown);
@@ -234,6 +260,7 @@ void EpdiyDriver::prepare(const uint8_t* fb, RefreshMode mode) {
 void EpdiyDriver::display(EpdBus& bus, const uint8_t* fb, const uint8_t*, RefreshMode mode, bool) {
   displayFinish(bus, nullptr);
   if (!_ready || !fb || _faulted) { _success.store(false); return; }
+  _jobReading=_jobGray4=false;
   prepare(fb, mode);
   update(_lastBaseMode, mode != RefreshMode::Fast);
 }
@@ -243,6 +270,7 @@ bool EpdiyDriver::displayStart(EpdBus& bus, const uint8_t* fb, const uint8_t* pr
   if (!_ready || !fb || _faulted) { _success.store(false); return false; }
   // EPDiy already owns a full 4bpp target: copy before returning, never keep the
   // caller's framebuffer pointer or allocate a second per-refresh snapshot.
+  _jobReading=_jobGray4=false;
   prepare(fb, mode); _jobFull = mode != RefreshMode::Fast;
   _queuedAt=micros(); _working.store(true); xTaskNotifyGive(_worker);
   return true;
@@ -251,6 +279,11 @@ bool EpdiyDriver::displayGray8Start(EpdBus& bus, const uint8_t* pixels, uint16_t
   displayFinish(bus, nullptr);
   const auto g = geometry();
   if (!_ready || !pixels || stride < g.width || _faulted) { _success.store(false); return false; }
+  _jobReading=mode==RefreshMode::Text || mode==RefreshMode::Text16;
+  _jobFull=mode==RefreshMode::Full || mode==RefreshMode::Half || (_jobReading && _readingTurns>=13);
+  _jobGray4=(mode==RefreshMode::Text || mode==RefreshMode::TextStatus) && _cfg.readingWaveform && _rawTarget && !_gray4Disabled && !_jobFull && _panelKnown;
+  _lastBaseMode = _jobFull ? MODE_GC16 : MODE_GL16;
+  if(_worker){_targetReady.store(false);_queuedAt=micros();_working.store(true);xTaskNotifyGive(_worker);}
   auto* dst = epd_hl_get_framebuffer(&_hl);
   for (uint16_t y = 0; y < g.height; ++y) {
     const auto* row = pixels + size_t(y)*stride;
@@ -268,10 +301,11 @@ bool EpdiyDriver::displayGray8Start(EpdBus& bus, const uint8_t* pixels, uint16_t
       output[x/2]=gGrayNibble[row[x]] | (gGrayNibble[row[x+1]]<<4);
     }
   }
-  _lastBaseMode = mode == RefreshMode::Fast ? MODE_GL16 : MODE_GC16;
-  _jobFull = mode != RefreshMode::Fast;
+  if(_jobGray4)memcpy(_rawTarget,dst,size_t(g.width)*g.height/2);
+  if(_jobGray4)for(size_t i=0;i<size_t(g.width)*g.height/2;++i){const auto b=dst[i];dst[i]=(5*((b&15)>>2)) | ((5*(b>>6))<<4);}
+  _targetReady.store(true,std::memory_order_release);
   if (!_worker) { update(_lastBaseMode, _jobFull); return false; }
-  _queuedAt=micros(); _working.store(true); xTaskNotifyGive(_worker); return true;
+  return true;
 }
 RefreshMetrics EpdiyDriver::lastRefreshMetrics() const {
   if (_working.load()) return {};
@@ -283,19 +317,34 @@ void EpdiyDriver::displayFinish(EpdBus&, const uint8_t*) {
   while (_working.load()) delay(1);
 }
 
+bool EpdiyDriver::ensureOverlayPlanes() {
+  const auto bytes=geometry().bufferSize;
+  auto allocate=[&](uint8_t*& plane) {
+    if(plane)return true;
+#if __has_include(<ResourceMemory.h>)
+    plane=static_cast<uint8_t*>(resources::Memory::get().allocate(bytes,resources::Category::System,0,resources::Lifetime::System));
+#else
+    plane=static_cast<uint8_t*>(heap_caps_malloc(bytes,MALLOC_CAP_SPIRAM));
+#endif
+    if(plane)memset(plane,0,bytes);return plane!=nullptr;
+  };
+  return allocate(_lsb) && allocate(_msb);
+}
+
 void EpdiyDriver::copyGrayscaleLsb(EpdBus& bus, const uint8_t* lsb) {
   displayFinish(bus, nullptr);
-  if (_lsb && lsb) memcpy(_lsb, lsb, geometry().bufferSize);
+  if (ensureOverlayPlanes() && lsb) memcpy(_lsb, lsb, geometry().bufferSize);
 }
 
 void EpdiyDriver::copyGrayscaleMsb(EpdBus& bus, const uint8_t* msb) {
   displayFinish(bus, nullptr);
-  if (_msb && msb) memcpy(_msb, msb, geometry().bufferSize);
+  if (ensureOverlayPlanes() && msb) memcpy(_msb, msb, geometry().bufferSize);
 }
 
 void EpdiyDriver::writeGrayscalePlaneStrip(EpdBus& bus, GrayPlane plane, const uint8_t* rows, uint16_t yStart,
                                            uint16_t numRows) {
   displayFinish(bus, nullptr);
+  if(!ensureOverlayPlanes())return;
   uint8_t* dst = plane == GrayPlane::Lsb ? _lsb : _msb;
   if (!dst || !rows) return;
   const PanelGeometry g = geometry();
