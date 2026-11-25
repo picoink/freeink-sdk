@@ -7,8 +7,12 @@ namespace freeink::resources {
 // a private block outside it, then published only if the slot generation still
 // matches. Reclaim, resize and file I/O can safely reenter the cache.
 class SharedReadCache {
-  static constexpr size_t blockSize=4096;
-  struct Slot {char key[160]{};uint64_t version=0,generation=0;size_t size=0,refs=0,count=0;uint8_t* bytes=nullptr;};
+  // Sparse CJK glyph outlines are usually much smaller than a 4 KiB block.
+  // Sector-aligned 1 KiB blocks reduce SD read amplification; four ways keep
+  // hot cmap/loca/metrics blocks from colliding with streamed outlines.
+  static constexpr size_t blockSize=1024;
+  struct Tag {uint32_t block,used;};
+  struct Slot {char key[160]{};uint64_t version=0,generation=0;size_t size=0,refs=0,count=0;uint8_t* bytes=nullptr;uint32_t clock=0;};
   struct Pool {std::mutex mutex;std::array<Slot,8> slots;};
   static Pool& pool(){alignas(Pool) static unsigned char storage[sizeof(Pool)];static auto* p=new(storage) Pool;return *p;}
  public:
@@ -29,11 +33,11 @@ class SharedReadCache {
       count=std::min(requested/blockSize,(slot->size+blockSize-1)/blockSize);
       if(count<=slot->count)return;generation=slot->generation;}
     const auto usage=Memory::get().snapshot().categories[size_t(Category::Font)];
-    const auto bytes=count*(blockSize+sizeof(uint32_t));
+    const auto bytes=count*(blockSize+sizeof(Tag));
     if(bytes+128>limits[size_t(Category::Font)]-usage.current)return;
     auto* replacement=static_cast<uint8_t*>(Memory::get().allocate(bytes,Category::Font,0,Lifetime::Cache));
     if(!replacement)return;
-    memset(replacement+count*blockSize,255,count*sizeof(uint32_t));
+    memset(replacement+count*blockSize,255,count*sizeof(Tag));
     uint8_t* retired=replacement;
     {std::lock_guard<std::mutex> lock(p.mutex);
       if(slot_==slot && slot->generation==generation){retired=slot->bytes;slot->bytes=replacement;slot->count=count;++slot->generation;}}
@@ -58,20 +62,36 @@ class SharedReadCache {
         slot=slot_;size=slot?slot->size:0;count=slot?slot->count:0;generation=slot?slot->generation:0;
         if(slot && offset>=size)break;
         n=std::min({bytes-copied,blockSize-within,slot?size-offset:bytes-copied});
-        if(count && tags(*slot)[block%count]==block){memcpy(out+copied,slot->bytes+(block%count)*blockSize+within,n);offset+=n;copied+=n;++hits;continue;}}
+        if(count){const auto index=find(*slot,block);auto& tag=tags(*slot)[index];
+          if(tag.block==block){tag.used=++slot->clock;memcpy(out+copied,slot->bytes+index*blockSize+within,n);offset+=n;copied+=n;++hits;continue;}}}
       if(!count)return copied+fn(context,offset,out+copied,bytes-copied);
+      // FreeType retains large tables itself. Let their cold reads use the
+      // storage driver's multi-sector transfer instead of many tiny requests.
+      if(bytes-copied>=4*blockSize)
+        return copied+fn(context,offset,out+copied,std::min(bytes-copied,size-offset));
       const size_t wanted=std::min(blockSize,size-block*blockSize);
       if(fn(context,block*blockSize,blockBytes.data(),wanted)!=wanted)break;
       memcpy(out+copied,blockBytes.data()+within,n);
       {std::lock_guard<std::mutex> lock(p.mutex);
         if(slot_==slot && slot->generation==generation && slot->count==count){
-          memcpy(slot->bytes+(block%count)*blockSize,blockBytes.data(),wanted);tags(*slot)[block%count]=block;}}
+          const auto index=find(*slot,block);
+          memcpy(slot->bytes+index*blockSize,blockBytes.data(),wanted);tags(*slot)[index]={uint32_t(block),++slot->clock};}}
       offset+=n;copied+=n;
     }
     return copied;
   }
  private:
-  static uint32_t* tags(Slot& s){return reinterpret_cast<uint32_t*>(s.bytes+s.count*blockSize);}
+  static Tag* tags(Slot& s){return reinterpret_cast<Tag*>(s.bytes+s.count*blockSize);}
+  static size_t find(Slot& s,size_t block) {
+    const size_t ways=std::min(size_t(4),s.count),first=(block%(s.count/ways))*ways;
+    size_t oldest=first;
+    for(size_t i=first;i<first+ways;++i){
+      const auto& tag=tags(s)[i];const auto& candidate=tags(s)[oldest];
+      if(tag.block==block)return i;
+      if(tag.block==UINT32_MAX || (candidate.block!=UINT32_MAX && uint32_t(s.clock-tag.used)>uint32_t(s.clock-candidate.used)))oldest=i;
+    }
+    return oldest;
+  }
   Slot* slot_=nullptr;
 };
 }

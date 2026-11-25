@@ -201,6 +201,18 @@ bool StorageFile::seekSet(uint64_t position) {
   #endif
   return volume_ == StorageVolume::Tf ? sd_.seekSet(position) : position <= UINT32_MAX && flash_.seek(uint32_t(position));
 }
+bool StorageFile::optimizeReadSeeks() {
+  Lock lock(storageMutex());
+  if(!valid() || volume_!=StorageVolume::Tf || (flags_&O_ACCMODE)!=O_RDONLY ||
+      sd_.isDirectory() || sd_.fileSize()>64*1024*1024)return false;
+#ifdef FREEINK_HOST
+  return false; // POSIX seeks already have constant cost; no FAT chain exists.
+#else
+  // The driver verifies every cluster and only then sets its contiguous flag.
+  // Fragmented files keep the normal checked seek path; no file is rewritten.
+  return sd_.contiguousRange(nullptr,nullptr);
+#endif
+}
 uint64_t StorageFile::curPosition() const {
   Lock lock(storageMutex()); if (!valid()) return 0;
 #ifndef FREEINK_HOST

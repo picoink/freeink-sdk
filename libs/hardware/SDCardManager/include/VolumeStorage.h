@@ -34,6 +34,9 @@ class StorageFile {
   int read();
   size_t write(const void*, size_t);
   bool seekSet(uint64_t);
+  // Optional read-only hint. SdFat can avoid walking the FAT chain for every
+  // backwards glyph seek after verifying a bounded file is contiguous.
+  bool optimizeReadSeeks();
   uint64_t curPosition() const;
   uint64_t fileSize() const;
   uint64_t size() const { return fileSize(); }

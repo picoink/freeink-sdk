@@ -94,6 +94,34 @@ int main() {
     assert(changed.read(0,output,16,read,&reads,hits)==16 && reads==2);
     second.trim();assert(second.read(0,output,16,read,&reads,hits)==16 && reads==3);
   }
+  {
+    SharedReadCache cache;cache.open("sparse.ttf",65539,1);cache.configure(4096);
+    struct Source {unsigned reads=0;size_t bytes=0;bool shortRead=false;} source;
+    auto read=[](void* p,size_t at,uint8_t* out,size_t bytes)->size_t {
+      auto& s=*static_cast<Source*>(p);++s.reads;s.bytes+=bytes;
+      if(s.shortRead)return 0;
+      for(size_t i=0;i<bytes;++i)out[i]=uint8_t((at+i)*17+((at+i)>>8));
+      return bytes;
+    };
+    uint32_t hits=0;uint8_t output[8192];
+    // Four colliding sparse blocks remain hot without four full-block reads
+    // for a few bytes of metadata. The last partial block is bounded too.
+    for(size_t at:{0,4096,8192,12288})assert(cache.read(at,output,16,read,&source,hits)==16);
+    assert(source.reads==4 && source.bytes==4096);
+    for(size_t at:{0,4096,8192,12288})assert(cache.read(at,output,16,read,&source,hits)==16);
+    assert(source.reads==4 && hits==4);
+    assert(cache.read(65536,output,16,read,&source,hits)==3);
+    const auto calls=source.reads;
+    // Large table reads remain contiguous; partial and cross-block requests
+    // produce exactly the same bytes as the source.
+    assert(cache.read(20113,output,sizeof(output),read,&source,hits)==sizeof(output));
+    assert(source.reads==calls+1);
+    for(size_t i=0;i<sizeof(output);++i)assert(output[i]==uint8_t((20113+i)*17+((20113+i)>>8)));
+    assert(cache.read(30719,output,29,read,&source,hits)==29);
+    for(size_t i=0;i<29;++i)assert(output[i]==uint8_t((30719+i)*17+((30719+i)>>8)));
+    source.shortRead=true;assert(cache.read(49152,output,16,read,&source,hits)==0);
+    source.shortRead=false;assert(cache.read(49152,output,16,read,&source,hits)==16);
+  }
   auto* tls=static_cast<unsigned char*>(TlsMemory::calloc(128,1024));assert(tls && tls[0]==0 && tls[128*1024-1]==0);
   assert(!TlsMemory::calloc(SIZE_MAX,2));
   assert(!TlsMemory::calloc(512,1024));TlsMemory::free(tls);
