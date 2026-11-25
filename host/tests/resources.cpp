@@ -93,6 +93,31 @@ int main() {
     changed.open("font.ttf",8192,2);changed.configure(8192);
     assert(changed.read(0,output,16,read,&reads,hits)==16 && reads==2);
     second.trim();assert(second.read(0,output,16,read,&reads,hits)==16 && reads==3);
+    assert(second.read(0,output,16,read,&reads,hits)==16 && reads==3);
+  }
+  {
+    SharedReadCache cache;cache.open("pressure.ttf",MiB,1);cache.configure(MiB/2);
+    cache.trim();assert(memory.snapshot().current==0);
+    auto* live=memory.allocate(5*MiB/2,Category::Font);assert(live);
+    const auto before=memory.snapshot();
+    unsigned reads=0;uint32_t hits=0;uint8_t output[16];
+    auto read=[](void* p,size_t,uint8_t* out,size_t bytes)->size_t{++*static_cast<unsigned*>(p);memset(out,42,bytes);return bytes;};
+    assert(cache.read(0,output,sizeof(output),read,&reads,hits)==sizeof(output));
+    const auto restored=memory.snapshot();
+    assert(restored.current>before.current && restored.current-before.current<MiB/2);
+    assert(restored.failures==before.failures);
+    assert(restored.categories[size_t(Category::Font)].current+64*1024<limits[size_t(Category::Font)]);
+    assert(cache.read(0,output,sizeof(output),read,&reads,hits)==sizeof(output) && reads==1 && hits==1);
+    cache.trim();
+    auto* busy=memory.allocate(MiB/2-1024,Category::Font);assert(busy);
+    const auto full=memory.snapshot();
+    assert(cache.read(0,output,sizeof(output),read,&reads,hits)==sizeof(output) && output[0]==42);
+    assert(memory.snapshot().current==full.current && memory.snapshot().failures==full.failures);
+    memory.release(busy);
+    assert(cache.read(0,output,sizeof(output),read,&reads,hits)==sizeof(output));
+    const auto calls=reads;
+    assert(cache.read(0,output,sizeof(output),read,&reads,hits)==sizeof(output) && reads==calls);
+    memory.release(live);
   }
   {
     SharedReadCache cache;cache.open("sparse.ttf",65539,1);cache.configure(4096);

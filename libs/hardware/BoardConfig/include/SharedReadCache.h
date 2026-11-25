@@ -28,13 +28,26 @@ class SharedReadCache {
     for(auto& s:p.slots)if(!s.refs){snprintf(s.key,sizeof(s.key),"%s",key);s.size=size;s.version=version;s.refs=1;++s.generation;slot_=&s;return;}
   }
   void configure(size_t requested) {
+    requested_=requested;
     auto& p=pool();Slot* slot;size_t count;uint64_t generation;
     {std::lock_guard<std::mutex> lock(p.mutex);slot=slot_;if(!slot)return;
       count=std::min(requested/blockSize,(slot->size+blockSize-1)/blockSize);
       if(count<=slot->count)return;generation=slot->generation;}
-    const auto usage=Memory::get().snapshot().categories[size_t(Category::Font)];
+    const auto snapshot=Memory::get().snapshot();
+    const auto used=snapshot.categories[size_t(Category::Font)].current;
+    // Reclaimed file blocks must become a cache again, even when a newly
+    // opened face leaves less room than the original request. Leave space for
+    // FreeType's live glyph work, and never consume the physical reserve.
+    constexpr size_t workspace=64*1024;
+    const auto categoryRoom=limits[size_t(Category::Font)]-used;
+    const auto physicalRoom=snapshot.free>reserveBytes?snapshot.free-reserveBytes:0;
+    const auto globalLimit=snapshot.capacity>reserveBytes?snapshot.capacity-reserveBytes:0;
+    const auto globalRoom=globalLimit>snapshot.current?globalLimit-snapshot.current:0;
+    const auto available=std::min({categoryRoom>workspace?categoryRoom-workspace:0,physicalRoom,globalRoom});
+    while(count && count*(blockSize+sizeof(Tag))+128>available)count/=2;
+    if(!count)return;
+    {std::lock_guard<std::mutex> lock(p.mutex);if(slot_!=slot || slot->generation!=generation || count<=slot->count)return;}
     const auto bytes=count*(blockSize+sizeof(Tag));
-    if(bytes+128>limits[size_t(Category::Font)]-usage.current)return;
     auto* replacement=static_cast<uint8_t*>(Memory::get().allocate(bytes,Category::Font,0,Lifetime::Cache));
     if(!replacement)return;
     memset(replacement+count*blockSize,255,count*sizeof(Tag));
@@ -50,11 +63,16 @@ class SharedReadCache {
   }
   void close() {
     auto& p=pool();uint8_t* retired=nullptr;
-    {std::lock_guard<std::mutex> lock(p.mutex);if(slot_ && !--slot_->refs){retired=slot_->bytes;slot_->bytes=nullptr;slot_->count=0;++slot_->generation;}slot_=nullptr;}
+    {std::lock_guard<std::mutex> lock(p.mutex);if(slot_ && !--slot_->refs){retired=slot_->bytes;slot_->bytes=nullptr;slot_->count=0;++slot_->generation;}slot_=nullptr;requested_=0;}
     Memory::get().release(retired);
   }
   size_t read(size_t offset,uint8_t* out,size_t bytes,Read fn,void* context,uint32_t& hits) {
     auto& p=pool();size_t copied=0;std::array<uint8_t,blockSize> blockBytes;
+    bool restore=false;
+    {std::lock_guard<std::mutex> lock(p.mutex);restore=slot_ && !slot_->count && requested_ && bytes;}
+    // At most one restoration attempt per read, outside the directory lock.
+    // A concurrent/reentrant trim during the fill still invalidates publication.
+    if(restore)configure(requested_);
     while(copied<bytes) {
       Slot* slot;uint64_t generation;size_t size,count,n;
       const size_t block=offset/blockSize,within=offset%blockSize;
@@ -93,5 +111,6 @@ class SharedReadCache {
     return oldest;
   }
   Slot* slot_=nullptr;
+  size_t requested_=0;
 };
 }
