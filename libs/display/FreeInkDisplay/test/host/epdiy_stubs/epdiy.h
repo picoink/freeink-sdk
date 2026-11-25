@@ -4,9 +4,9 @@
 #include <cassert>
 #include <condition_variable>
 #include <mutex>
-enum EpdDrawMode { MODE_GC16, MODE_GL16, MODE_DU };
+enum EpdDrawMode { MODE_GC16, MODE_GL16, MODE_DU, MODE_GL4_COMPACT = 0x10000 };
 enum EpdDrawError { EPD_DRAW_SUCCESS, EPD_DRAW_FAILED };
-enum EpdInitOptions { EPD_LUT_1K };
+enum EpdInitOptions { EPD_LUT_1K = 1, EPD_LUT_4K = 16 };
 enum { EPD_ROT_LANDSCAPE };
 struct EpdBoardDefinition {};
 struct EpdWaveform {};

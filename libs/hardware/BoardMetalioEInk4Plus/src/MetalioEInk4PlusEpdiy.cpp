@@ -1,3 +1,4 @@
+#include "Tps65185Startup.h"
 // EPDiy board definition and FreeInk EpdiyConfig for the Metalio E-Ink4-Plus.
 //
 // Panel power is a TPS65185 whose WAKEUP / PWRUP / VCOM_CTRL inputs and
@@ -141,21 +142,17 @@ bool powerOnOnce(epd_ctrl_state_t* state) {
 
   // WAKEUP high, PWRUP low: STANDBY, registers reachable.
   if (!mp::setOutputs(TPS_LINES, 1u << mp::PIN_TPS_WAKEUP)) return failed("standby latch");
-  delay(50);
   uint8_t revid = 0;
-  if (!mp::tpsProbe()) return failed("probe");
+  auto clock=[] {return uint32_t(millis());};
+  auto wait=[](uint32_t ms) {delay(ms);};
+  if (!freeink::metalio::waitTpsReady(clock,wait,[] {return mp::tpsProbe();},50,3)) return failed("probe");
   if (!mp::tpsRead(TPS_REG_REVID, revid)) return failed("revision read");
   if (!mp::tpsWrite(TPS_REG_UPSEQ0, 0xE4) || !mp::tpsWrite(TPS_REG_UPSEQ1, 0x55)) return failed("sequence write");
 
   // PWRUP rising edge starts the boost; wait for PWR_GOOD on P0.7.
   if (!mp::setOutputs(TPS_LINES, TPS_LINES)) return failed("power latch");
-  delay(50);
-  bool good = false;
-  for (int ms = 0; ms < 200 && !good; ++ms) {
-    good = mp::tpsPowerGood();
-    if (!good) delay(1);
-  }
-  if (!good) return failed("power-good pin timeout");
+  if (!freeink::metalio::waitTpsReady(clock,wait,[] {return mp::tpsPowerGood();},200))
+    return failed("power-good pin timeout");
 
   const unsigned vcom = static_cast<unsigned>(gVcomMv) / 10;
   if (!mp::tpsWrite(TPS_REG_ENABLE, 0x3F) || !mp::tpsWrite(TPS_REG_VCOM2, (vcom & 0x100) >> 8) ||
@@ -165,12 +162,8 @@ bool powerOnOnce(epd_ctrl_state_t* state) {
   state->ep_sth = true;
 
   uint8_t pg = 0;
-  bool railsGood = false;
-  for (int tries = 0; tries < 200 && !railsGood; ++tries) {
-    railsGood = mp::tpsRead(TPS_REG_PG, pg) && (pg & 0xFA) == 0xFA;
-    if (!railsGood) delay(1);
-  }
-  if (!railsGood) return failed("power-good register timeout");
+  if (!freeink::metalio::waitTpsReady(clock,wait,[&] {return mp::tpsRead(TPS_REG_PG,pg) && (pg&0xFA)==0xFA;},200))
+    return failed("power-good register timeout");
 
   state->ep_output_enable = true;
   epd_ctrl_state_t outMask = {};
@@ -233,7 +226,7 @@ static const EpdWaveform* readingGl4() {
 const EpdiyConfig& metalioEInk4PlusEpdiyConfig() {
   static EpdiyConfig config = [] {
     my_waveform_init();  // must precede epd_hl_init()
-    return EpdiyConfig{&kBoard, &E0470A14_AF, my_waveform_fast(), EPD_LUT_1K, 1200, 25, true,
+    return EpdiyConfig{&kBoard, &E0470A14_AF, my_waveform_fast(), EPD_LUT_4K, 1200, 25, true,
                       my_waveform_wipe_gl(0), MODE_GL16, readingGl4()};
   }();
   return config;

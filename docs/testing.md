@@ -394,10 +394,11 @@ also checks unaligned packed difference input, every width from 1 to 1216, and o
 tails. The driver suite injects a failed scan and verifies that automatic retries
 cannot clear or scan the panel again until an explicit resync.
 
-The S31 scheduler preloads 125 rows per 127-slot queue. The CPU servicing the
-LCD/DMA interrupts prepares 7 of every 16 rows, and the other CPU prepares 9;
-neither feeder loses its prefill reserve. The next phase can prepare once both
-feeders finish, while the LCD consumes the current tail. LCD and DMA interrupts
+The S31 scheduler holds two complete phases and waits for full-phase prefill.
+The CPU servicing LCD/DMA interrupts prepares 13 of every 32 rows, and the
+other CPU prepares 19. The split follows measured feeder completion times,
+including interrupt work. The next phase can prepare once both feeders finish,
+while the LCD consumes the current immutable phase. LCD and DMA interrupts
 share a CPU and cancellation waits for their old callbacks before recycling data.
 Other LCD targets retain alternating ownership. EPDiy exposes separate power,
 preparation, waveform-cycle, actual scanning and completion timings through
@@ -460,3 +461,26 @@ failures request global reclamation. The consumer content test exercises reverse
 page prefetch and a transient-image quota refusal with no room for a third frame.
 Device acceptance must include sustained turns in both directions; alternating
 between two pages does not exercise this working set.
+
+
+## S31 compact GL4 and ready-driven power
+
+`python3 libs/hardware/BoardMetalioEInk4Plus/test/host/run_power.py` checks the
+TPS65185 I2C wake minimum, temporary NACKs, elapsed power-good deadlines and
+32-bit clock wrap. The production path waits at least 3 ms before I2C (the
+[TI SLVSAQ8G specification](https://www.ti.com/lit/ds/symlink/tps65185.pdf),
+Figure 2, requires 1.8 ms), then checks both the power-good pin and rail status.
+It preserves voltage, sequence registers, retry power cycles, output-enable
+ordering and refresh-after power-off. The test models readiness and failures;
+it is not an electrical or temperature qualification of the panel.
+
+The LCD suite exhaustively compares the compact 4 KiB pair LUT with scalar
+waveform pixels, including four target gray values, all sixteen old values,
+unchanged-pixel suppression, tail words and fused difference construction.
+It does not reduce waveform stages. Gray8 packing combines quantization and
+original-target preservation; driver tests verify the source remains immutable.
+
+Physical observations are tracked by the PicoInk consumer. A 2026-11-25
+30-turn test on S31 completed without scan faults after the readiness change,
+and the user confirmed normal text and screen appearance. This is a single
+board result, not evidence for all temperatures or supply conditions.

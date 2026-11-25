@@ -46,6 +46,7 @@ int main() {
     }
     for(unsigned page=0;page<14;++page) {
       for(unsigned i=0;i<gray.size();++i)gray[i]=uint8_t(i*2);
+      if(page%2)std::fill(gray.begin(),gray.begin()+32,255);
       const auto original=gray;
       driver.displayGray8Start(bus,gray.data(),16,RefreshMode::Text);driver.displayFinish(bus,nullptr);
       assert(gray==original);

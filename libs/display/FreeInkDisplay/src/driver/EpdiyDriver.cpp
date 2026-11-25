@@ -201,7 +201,9 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
     _hl.waveform = waveform;
   } else {
     const auto* waveform=_hl.waveform;
-    if(_jobGray4)_hl.waveform=_cfg.readingWaveform;
+    if(_jobGray4){_hl.waveform=_cfg.readingWaveform;
+      if(_cfg.initOptions & EPD_LUT_4K)mode=static_cast<EpdDrawMode>(mode|MODE_GL4_COMPACT);
+    }
     err = epd_hl_update_screen(&_hl, mode, temperature());
     _hl.waveform=waveform;
   }
@@ -293,18 +295,22 @@ bool EpdiyDriver::displayGray8Start(EpdBus& bus, const uint8_t* pixels, uint16_t
     uint16_t x=0;
     for (;x+8<=g.width;x+=8) {
       uint32_t a,b; memcpy(&a,row+x,4); memcpy(&b,row+x+4,4);
-      const uint32_t packed=uint32_t(gGrayNibble[a&255]) | (uint32_t(gGrayNibble[(a>>8)&255])<<4) |
+      const uint32_t packed=(a & b)==UINT32_MAX ? UINT32_MAX : uint32_t(gGrayNibble[a&255]) | (uint32_t(gGrayNibble[(a>>8)&255])<<4) |
         (uint32_t(gGrayNibble[(a>>16)&255])<<8) | (uint32_t(gGrayNibble[a>>24])<<12) |
         (uint32_t(gGrayNibble[b&255])<<16) | (uint32_t(gGrayNibble[(b>>8)&255])<<20) |
         (uint32_t(gGrayNibble[(b>>16)&255])<<24) | (uint32_t(gGrayNibble[b>>24])<<28);
-      memcpy(output+x/2,&packed,4);
+      if(_jobGray4) {
+        memcpy(_rawTarget+size_t(y)*g.width/2+x/2,&packed,4);
+        const uint32_t quantized=((packed>>2)&0x33333333u)*5u;
+        memcpy(output+x/2,&quantized,4);
+      } else memcpy(output+x/2,&packed,4);
     }
     for (;x<g.width;x+=2) {
-      output[x/2]=gGrayNibble[row[x]] | (gGrayNibble[row[x+1]]<<4);
+      const uint8_t packed=gGrayNibble[row[x]] | (gGrayNibble[row[x+1]]<<4);
+      if(_jobGray4)_rawTarget[size_t(y)*g.width/2+x/2]=packed;
+      output[x/2]=_jobGray4 ? uint8_t(((packed>>2)&0x33)*5) : packed;
     }
   }
-  if(_jobGray4)memcpy(_rawTarget,dst,size_t(g.width)*g.height/2);
-  if(_jobGray4)for(size_t i=0;i<size_t(g.width)*g.height/2;++i){const auto b=dst[i];dst[i]=(5*((b&15)>>2)) | ((5*(b>>6))<<4);}
   _targetReady.store(true,std::memory_order_release);
   if (!_worker) { update(_lastBaseMode, _jobFull); return false; }
   return true;
