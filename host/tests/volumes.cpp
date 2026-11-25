@@ -1,6 +1,7 @@
 #include <HostRuntime.h>
 #include <VolumeStorage.h>
 #include <StorageReadWindow.h>
+#include <ResourceCoordinator.h>
 #include <unistd.h>
 #include <filesystem>
 #include <fstream>
@@ -56,6 +57,23 @@ int main() {
     host::setDevice("faults",host::Json(host::Object{}));window.close();
   }
   CHECK(!storage.rename("/tf/books/sub/book.txt", "/internal/moved.txt"));
+  {
+    using Gate=resources::Coordinator;
+    auto internal=storage.open("/internal/books/sub/book.txt");
+    auto writable=storage.open("/tf/books/sub/book.txt",O_RDWR);
+    {
+      Gate::ReadOnlyScope scope(true);
+      auto readable=storage.open("/tf/books/sub/book.txt");CHECK(readable && readable.read()=='/');
+      CHECK(!storage.open("/internal/books/sub/book.txt") && internal.read()==-1);
+      CHECK(!storage.open("/tf/new",O_RDONLY|O_CREAT));
+      CHECK(!storage.open("/tf/books/sub/book.txt",O_RDWR));
+      CHECK(writable.write("bad",3)==0 && !writable.truncate(0) && !writable.sync());
+      CHECK(!storage.remove("/tf/books/sub/book.txt") && !storage.rename("/tf/books/sub/book.txt","/tf/moved"));
+      CHECK(!storage.ensureDirectoryExists("/tf/newdir") && !storage.mount(StorageVolume::Tf));
+      writable.close(); // Keep an existing writable descriptor until outside the scope.
+    }
+    CHECK(writable && writable.fileSize()==2 && internal.read()=='/');
+  }
   CHECK(!storage.open("/internal/../secret",O_CREAT|O_WRONLY));
   CHECK(!storage.open("/tf/./secret",O_CREAT|O_WRONLY));
   CHECK(!storage.open("/internal/missing",O_WRONLY));

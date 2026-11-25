@@ -34,4 +34,18 @@ int main() {
   assert(gate.ready());gate.request(Barrier::Display,false);
   assert(gate.beginFlash());assert(!gate.request(Barrier::Display,true));
   gate.end(Client::Flash);assert(gate.ready());gate.request(Barrier::Display,false);
+  {
+    Coordinator::Lease prefetch(Client::ReadOnlyContent);assert(prefetch);
+    Coordinator::ReadOnlyScope restrictions(true);
+    assert(!gate.beginFlash());
+    assert(gate.request(Barrier::Display,true));
+    assert(!gate.blocked(Client::ReadOnlyContent) && gate.blocked(Client::Content));
+    assert(!gate.begin(Client::ForegroundIo) && !gate.begin(Client::NetworkStorage));
+    assert(!gate.request(Barrier::Sleep,true));
+    assert(gate.blocked(Client::ReadOnlyContent));
+    gate.park(Client::ReadOnlyContent,true);assert(gate.ready());
+    gate.park(Client::ReadOnlyContent,false);gate.request(Barrier::Sleep,false);
+    assert(gate.ready());gate.request(Barrier::Display,false);
+  }
+  assert(!Coordinator::readOnlyTask() && gate.ready());
 }

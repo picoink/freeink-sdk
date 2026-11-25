@@ -510,3 +510,31 @@ the board's existing white-conditioning waveform. UI and high-quality text keep
 16-gray targets. The EPDiy worker test checks initial clearing, waveform selection,
 source immutability and subsequent cleaning. Physical startup timing and optical
 checks remain consumer evidence, separate from these host checks.
+
+## Read-only prefetch during LCD scanning
+
+`host_resource_coordinator` checks separate read-only content admission: display
+may overlap that client, while USB and sleep wait for it to drain. Flash access
+cannot inherit a write lease from read-only work. `host_volumes` checks the scoped
+storage restriction against existing and newly opened handles: TF reads work,
+internal-volume reads, writes, truncation, rename/remove, directory creation and
+mount changes are rejected. The scope is eligible only on the S31 LCD/SDMMC
+backend (and its host model); it is not a promise of safe shared-SPI concurrency.
+PicoInk's `content_tasks` test completes a TF chapter, prepares a neighboring
+frame while the display barrier remains asserted, then transfers the frame under
+the two-frame budget. Actual DMA coexistence and optical quality require hardware
+validation; these host tests cannot certify it.
+
+The EPDiy LCD pipeline host test also replays exactly equal consecutive waveform
+phases from the existing immutable full-phase queues. It verifies every output
+pixel, queue wraparound, both IRQ core assignments, a failure during replay,
+missing completion and recovery. Streaming queues retain normal preparation.
+No drive phase, voltage, scan timing or clear stage is removed. The E0470 GL4
+profile has 14 repeated phases out of 24; no additional framebuffer is allocated.
+
+Consumer hardware trials `1cdf5ed9eb7351cc` and `ba97186e6f706a8e` completed
+distinct-page and alternating turns with zero scan faults; feed work dropped
+from approximately 269/280 ms to 112/114 ms per normal GL4 update. Those are
+measured producer timings, not a claim of the same reduction in panel latency.
+The complete lifecycle/concurrency acceptance remains in PicoInk's validation
+report, including its separately recorded optical confirmation.
