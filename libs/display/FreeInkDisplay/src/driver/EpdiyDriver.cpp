@@ -222,6 +222,8 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
   _metrics.scan_us=scan.scan_us;
   _metrics.lut_us=scan.lut_us;
   _metrics.feed_wait_us=scan.feed_wait_us;
+  _metrics.start_us=scan.start_us;_metrics.frame_wait_us=scan.frame_wait_us;_metrics.pace_us=scan.pace_us;
+  _metrics.feed0_us=scan.feed0_us;_metrics.feed1_us=scan.feed1_us;
   _metrics.phase_avg_us=scan.phase_avg_us;
   _metrics.phase_min_us=scan.phase_min_us;
   _metrics.phase_max_us=scan.phase_max_us;

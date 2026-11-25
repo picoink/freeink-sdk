@@ -13,6 +13,7 @@ struct RefreshMetrics {
   uint32_t scan_us = 0;
   uint32_t lut_us = 0;
   uint32_t feed_wait_us = 0;
+  uint32_t start_us=0,frame_wait_us=0,pace_us=0,feed0_us=0,feed1_us=0;
   uint32_t phase_avg_us = 0;
   uint32_t phase_min_us = 0;
   uint32_t phase_max_us = 0;
