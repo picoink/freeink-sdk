@@ -19,10 +19,11 @@ struct EpdiyConfig {
   int vcomMv;                     // VCOM magnitude in mV handed to the board; 0 = board default
   int temperatureC;               // waveform temperature when the board reports none
   bool deferredRefresh = false;   // opt-in SDK worker; other boards retain synchronous behavior
-  // Optional board waveform that conditions toward white, then reveals the target.
-  // Only used when the previous optical frame is known; recovery still clears it.
-  const EpdWaveform* whiteRefreshWaveform = nullptr;
-  enum EpdDrawMode whiteRefreshMode = MODE_GL16;
+  // Optional complete board waveform for full-panel conditioning and redraw.
+  // Must clean unchanged pixels too; a white-only erase is not a full refresh.
+  // Unknown optical state still takes the checked clear/recovery path.
+  const EpdWaveform* fullRefreshWaveform = nullptr;
+  enum EpdDrawMode fullRefreshMode = MODE_GC16;
   const EpdWaveform* readingWaveform = nullptr; // Four-gray targets, all sixteen source levels.
 };
 

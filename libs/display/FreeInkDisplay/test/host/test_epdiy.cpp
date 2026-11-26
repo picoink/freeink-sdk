@@ -30,8 +30,8 @@ namespace freeink {
 const EpdiyConfig& testConfig() {
   static EpdBoardDefinition board;
   static EpdDisplay_t display;
-  static EpdWaveform normal, white, reading;
-  static EpdiyConfig config{&board, &display, &normal, EPD_LUT_1K, 1200, 25, true, &white, MODE_GL16, &reading};
+  static EpdWaveform normal, full, reading;
+  static EpdiyConfig config{&board, &display, &normal, EPD_LUT_1K, 1200, 25, true, &full, MODE_GC16, &reading};
   return config;
 }
 }
@@ -76,7 +76,7 @@ int main() {
       const auto original=gray;
       driver.displayGray8Start(bus,gray.data(),16,RefreshMode::Text);driver.displayFinish(bus,nullptr);
       assert(gray==original);
-      if(page==13)assert(panel::lastKind==1 && panel::lastWaveform==testConfig().whiteRefreshWaveform);
+      if(page==13)assert(panel::lastKind==1 && panel::lastMode==MODE_GC16 && panel::lastWaveform==testConfig().fullRefreshWaveform);
       else {
         assert(panel::lastKind==2 && panel::lastWaveform==testConfig().readingWaveform);
         for(unsigned i=0;i<64;++i)assert(panel::framebuffer[i]==uint8_t(5*(((original[2*i]+8)/17)>>2) | (5*(((original[2*i+1]+8)/17)>>2)<<4)));
@@ -88,8 +88,8 @@ int main() {
     const unsigned knownClears = panel::clears;
     driver.displayStart(bus, frame.data(), nullptr, RefreshMode::Full, false);
     driver.displayFinish(bus, nullptr);
-    assert(driver.lastRefreshSucceeded() && panel::lastKind == 1 && panel::lastMode == MODE_GL16);
-    assert(panel::clears == knownClears && panel::lastWaveform == testConfig().whiteRefreshWaveform);
+    assert(driver.lastRefreshSucceeded() && panel::lastKind == 1 && panel::lastMode == MODE_GC16);
+    assert(panel::clears == knownClears && panel::lastWaveform == testConfig().fullRefreshWaveform);
     driver.displayGray8Start(bus,gray.data(),16,RefreshMode::Fast);
     driver.displayFinish(bus,nullptr);
     assert(panel::lastKind == 2 && panel::lastWaveform == testConfig().waveform);
@@ -133,8 +133,8 @@ int main() {
     assert(panel::lastWaveform==testConfig().readingWaveform);
     assert(driver.lastRefreshMetrics().clean && driver.lastRefreshMetrics().gray_levels==4);
     driver.displayGray8Start(bus,gray.data(),16,RefreshMode::TextClean);driver.displayFinish(bus,nullptr);
-    assert(panel::clears==clears+1 && panel::lastKind==1);
-    assert(panel::lastWaveform==testConfig().whiteRefreshWaveform && gray==original);
+    assert(panel::clears==clears+1 && panel::lastKind==1 && panel::lastMode==MODE_GC16);
+    assert(panel::lastWaveform==testConfig().fullRefreshWaveform && gray==original);
   }
   {
     EpdiyDriver driver(testConfig());driver.begin(bus);
@@ -169,7 +169,7 @@ int main() {
   failTaskAllocation = false;
   {
     EpdiyConfig config = testConfig(); config.deferredRefresh = false;
-    config.whiteRefreshWaveform = nullptr;
+    config.fullRefreshWaveform = nullptr;
     EpdiyDriver driver(config); driver.begin(bus);
     assert(!driver.supportsAsyncDisplay());
     driver.display(bus,frame.data(),nullptr,RefreshMode::Full,false);

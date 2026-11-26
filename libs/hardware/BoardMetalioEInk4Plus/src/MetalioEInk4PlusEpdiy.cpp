@@ -227,7 +227,7 @@ const EpdiyConfig& metalioEInk4PlusEpdiyConfig() {
   static EpdiyConfig config = [] {
     my_waveform_init();  // must precede epd_hl_init()
     return EpdiyConfig{&kBoard, &E0470A14_AF, my_waveform_fast(), EPD_LUT_4K, 1200, 25, true,
-                      my_waveform_wipe_gl(0), MODE_GL16, readingGl4()};
+                      &MY_WAVEFORM, MODE_GC16, readingGl4()};
   }();
   return config;
 }
