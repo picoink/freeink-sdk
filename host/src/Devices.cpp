@@ -264,14 +264,12 @@ bool UsbMassStorage::hostConnected() const {
   return state() == UsbMassStorageState::Connected || state() == UsbMassStorageState::Accessed;
 }
 bool PowerManager::armPowerButtonWakeup(bool) { return !fault("wake"); }
-bool PowerManager::wokeFromSleep() { return deviceBool("wake_from_sleep", false); }
-void PowerManager::armWakeReceipt(uint32_t token) {
-  setDevice("wake_receipt",number(token));setDevice("wake_receipt_consumed",Json(false));
-}
-PowerManager::WakeReceipt PowerManager::consumeWakeReceipt(uint32_t token) {
-  if(deviceNumber("wake_receipt",-1)!=token)return WakeReceipt::Unavailable;
-  if(deviceBool("wake_receipt_consumed",false))return WakeReceipt::Consumed;
-  setDevice("wake_receipt_consumed",Json(true));return WakeReceipt::Ready;
+bool PowerManager::wokeFromSleep() { return bootCause()==BootCause::Sleep; }
+PowerManager::BootCause PowerManager::bootCause() {
+  const auto reason=int(deviceNumber("reset_reason",deviceBool("wake_from_sleep",false)?8:1));
+  if(reason==8)return BootCause::Sleep;
+  if(reason==1 || reason==9 || reason==14)return BootCause::PowerRecovery;
+  return BootCause::Reset;
 }
 void PowerManager::powerDownRailsForSleep() {}
 PowerManager::AbortedSleepInfo PowerManager::takeAbortedSleepInfo() { return {}; }

@@ -457,7 +457,8 @@ refill timings, successful flashing and repeated-boot checks.
 ## Wake classification
 
 `PowerManager::wokeFromSleep()` identifies a completed deep-sleep boot using the
-reset reason and wake source. Cold boot and software reset do not count. The
+deep-sleep reset reason. Power-on and software reset do not count as deep sleep;
+`bootCause()` separately classifies recoverable power events. The
 SDK host backend models this through `wake_from_sleep`; `host_backend` tests
 both states. PicoInk's process-restart integration tests verify consumption of
 one-shot recovery records. These checks and the Metalio firmware build passed
@@ -523,13 +524,17 @@ clock, and calling `begin()` alone retains the original full wait. No touch
 settling interval is shortened. Input and ordered-queue host suites and the
 Metalio build pass; physical wake timing is recorded by the consumer.
 
-Wake handoffs can arm a 16-byte retained receipt after durable publication.
-`PowerManager::consumeWakeReceipt()` distinguishes a fresh, consumed or unavailable
-receipt. Consumers must check the wake reason, consume before application code,
-and use durable consumption when RTC retention is unavailable. Host state carries
-receipts through simulator process resets; backend tests cover mismatches,
-repeat consumption and re-arming identical checkpoints. This removes no durable
-progress write and does not treat an ordinary reset as a sleep wake.
+`PowerManager::bootCause()` separates completed deep sleep, power recovery
+(power-on, brownout and power-glitch reset), and other resets. A power-recovery
+cause alone never authorizes automatic application startup: consumers must have
+an unconsumed, validated, durable sleep intent and consume it on durable storage
+before executing application code. The retained-receipt API was removed: an RTC
+consumed flag can disappear on a later power loss and replay an old checkpoint.
+Host backend tests cover every reset category. PicoInk integration tests cover
+long sleep, power recovery, repeated identical handoffs, one-shot consumption,
+explicit shutdown and software/fault reset rejection. Compilation and host tests
+do not establish battery-supply stability; physical evidence is recorded by the
+PicoInk consumer.
 
 `TEXT_CLEAN_REFRESH` retains the complete unknown-panel clear sequence, then draws
 fast text with the selected 24-phase reading waveform. Known-panel cleaning keeps

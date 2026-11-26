@@ -21,12 +21,11 @@ class PowerManager {
  public:
   // True only for a boot caused by a completed deep sleep, never a cold reset.
   static bool wokeFromSleep();
-  // A small retained receipt avoids writing Flash on the wake critical path.
-  // Arm only after publishing durable handoff data. Re-arming an identical
-  // token represents a new handoff; consume before running restored code.
-  enum class WakeReceipt : uint8_t { Unavailable, Ready, Consumed };
-  static void armWakeReceipt(uint32_t token);
-  static WakeReceipt consumeWakeReceipt(uint32_t token);
+  // Power loss/glitch can erase deep-sleep state. A consumer may recover only
+  // an unconsumed durable sleep intent, never infer intent from this alone.
+  // Software/debug resets and program faults must not replay that intent.
+  enum class BootCause : uint8_t { Reset, Sleep, PowerRecovery };
+  static BootCause bootCause();
   // Arm wake-on-power-button using the SoC-correct wakeup source and the active
   // board's power pin + polarity (powerActiveHigh -> wake on HIGH, else LOW).
   // Returns false if the board has no power pin (PIN_UNASSIGNED); nothing armed.

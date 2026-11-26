@@ -15,8 +15,16 @@
 
 namespace freeink {
 bool PowerManager::wokeFromSleep() {
-  return esp_reset_reason() == ESP_RST_DEEPSLEEP &&
-         esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_UNDEFINED;
+  return bootCause()==BootCause::Sleep;
+}
+PowerManager::BootCause PowerManager::bootCause() {
+  switch(esp_reset_reason()) {
+    case ESP_RST_DEEPSLEEP: return BootCause::Sleep;
+    case ESP_RST_POWERON:
+    case ESP_RST_BROWNOUT:
+    case ESP_RST_PWR_GLITCH: return BootCause::PowerRecovery;
+    default: return BootCause::Reset;
+  }
 }
 namespace {
 int8_t powerPin() { return BoardConfig::ACTIVE.input.power; }
@@ -37,22 +45,6 @@ struct AbortedSleepRecord {
 
 RTC_NOINIT_ATTR uint32_t abortedSleepMagic;
 RTC_NOINIT_ATTR AbortedSleepRecord abortedSleepRecord;
-RTC_NOINIT_ATTR uint32_t wakeReceipt[4];
-
-void PowerManager::armWakeReceipt(uint32_t token) {
-  wakeReceipt[0]=0;
-  wakeReceipt[1]=token; wakeReceipt[2]=~token; wakeReceipt[3]=0;
-  __sync_synchronize();
-  wakeReceipt[0]=0x57414b45;
-}
-PowerManager::WakeReceipt PowerManager::consumeWakeReceipt(uint32_t token) {
-  if(wakeReceipt[0]!=0x57414b45 || wakeReceipt[1]!=token ||
-     wakeReceipt[2]!=~token || wakeReceipt[3]>1)return WakeReceipt::Unavailable;
-  if(wakeReceipt[3])return WakeReceipt::Consumed;
-  wakeReceipt[3]=1;
-  __sync_synchronize();
-  return WakeReceipt::Ready;
-}
 
 bool PowerManager::armWakeOnPins(uint64_t gpioMask, bool wakeLow) {
 #if SOC_PM_SUPPORT_EXT1_WAKEUP
