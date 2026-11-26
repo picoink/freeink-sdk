@@ -58,12 +58,12 @@ void EInkDisplay::begin() {
   clearScreen();
 }
 void EInkDisplay::displayBufferAsync(RefreshMode mode) {
-  publishFrame(buffer_, getDisplayWidth(), getDisplayHeight());
+  publishFrame(buffer_, getDisplayWidth(), getDisplayHeight(),0,calibration_.nativeX(),calibration_.nativeY());
   busyUntil_ = nowMs() + ((mode == FULL_REFRESH || mode == TEXT_CLEAN_REFRESH) ? runtime().displayFullMs : runtime().displayFastMs);
 }
 bool EInkDisplay::displayGray8BufferAsync(const uint8_t* pixels, uint16_t stride, RefreshMode mode) {
   if (!pixels || stride < getDisplayWidth() || refreshBusy()) return false;
-  publishFrame(pixels, getDisplayWidth(), getDisplayHeight(), stride);
+  publishFrame(pixels, getDisplayWidth(), getDisplayHeight(), stride,calibration_.nativeX(),calibration_.nativeY());
   busyUntil_ = nowMs() + ((mode == FULL_REFRESH || mode == TEXT_CLEAN_REFRESH) ? runtime().displayFullMs : runtime().displayFastMs);
   return true;
 }

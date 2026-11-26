@@ -199,6 +199,16 @@ Plus reuses its existing full-quality 20-phase white erase plus 48-phase GL16
 reveal. The waveform suite checks every erase pulse stays neutral or drives
 toward white. This does not establish physical residual-image performance.
 
+EPDiy calibration tests compare in-place packed Gray4 translation with an
+independent scalar image for positive/negative odd/even pixel offsets, clipping,
+white exposed strips and allocation canaries, including the 1216 x 684 panel.
+They check inverse touch mapping, invalid/busy refusal, immutable source pixels,
+clean refresh after changing calibration and subsequent GL4 operation. Calibration
+uses the existing PSRAM scan target, with no scratch frame or SRAM row buffer.
+The host backend applies the same physical offset to screenshots and UI hit
+regions. Consumer tests must cover persistence failures and physical edge
+visibility; assembly alignment cannot be diagnosed from a framebuffer alone.
+
 For the board-profile and display-probe regression test, follow the
 [XteinkDetect host instructions](../libs/hardware/XteinkDetect/test/host/README.md).
 
@@ -396,6 +406,15 @@ before queue/LUT reuse; subsequent cycles must recover without stale phases. UBS
 also checks unaligned packed difference input, every width from 1 to 1216, and odd
 tails. The driver suite injects a failed scan and verifies that automatic retries
 cannot clear or scan the panel again until an explicit resync.
+
+The row-layout test checks the first and last payload byte of all 684 rows against
+an independent receiver, for both native S31 RGB and legacy dummy-phase layouts.
+S31 uses 304 active bytes for a 1216-pixel panel, with no leading dummy byte.
+The DMA row stride, active width and enabled peripheral phases must agree.
+The fake LCD cannot verify physical start-pulse timing or glass alignment: device
+validation must also inspect all four edges using a known border pattern, after
+clearing any marks left at the old scan position. A correct framebuffer digest
+and successful scan completion alone do not establish physical alignment.
 
 The S31 full-phase scheduler balances row preparation across both CPUs. One
 complete phase fits in the row queues; two immutable PSRAM wire images exchange

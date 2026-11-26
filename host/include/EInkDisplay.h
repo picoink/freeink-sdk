@@ -1,6 +1,7 @@
 #pragma once
 #include <BoardConfig.h>
 #include <RefreshMetrics.h>
+#include <DisplayCalibration.h>
 
 #include "Arduino.h"
 class EInkDisplay {
@@ -24,6 +25,11 @@ class EInkDisplay {
   bool lastRefreshSucceeded() const { return !freeink::host::fault("display"); }
   void waitRefreshComplete();
   bool supportsGray8() const { return true; }
+  bool supportsCalibration() const { return true; }
+  bool setCalibration(const freeink::DisplayCalibration& value) {
+    if(refreshBusy() || !value.valid())return false;
+    calibration_=value;return true;
+  }
   bool displayGray8BufferAsync(const uint8_t*, uint16_t stride, RefreshMode mode = FAST_REFRESH);
   bool supportsAsyncRefresh() const { return true; }
   void deepSleep() {}
@@ -32,4 +38,5 @@ class EInkDisplay {
  private:
   uint8_t* buffer_ = nullptr;
   uint64_t busyUntil_ = 0;
+  freeink::DisplayCalibration calibration_{};
 };

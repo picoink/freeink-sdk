@@ -11,6 +11,7 @@
 // and build with -DFREEINK_EPDIY_CONFIG=yourConfig.
 
 #include <EpdiyConfig.h>
+#include <DisplayCalibration.h>
 
 #include "PanelDriver.h"
 
@@ -37,6 +38,12 @@ class EpdiyDriver : public PanelDriver {
   void display(EpdBus& bus, const uint8_t* fb, const uint8_t* prev, RefreshMode mode, bool turnOff) override;
 
   bool supportsGray8() const override { return true; }
+  bool supportsCalibration() const override { return true; }
+  bool setCalibration(const DisplayCalibration& value) override {
+    if(_working.load() || !value.valid())return false;
+    if(!(_calibration==value)){_calibration=value;_calibrationDirty=true;}
+    return true;
+  }
   bool displayGray8Start(EpdBus&, const uint8_t*, uint16_t, RefreshMode) override;
   bool supportsAsyncDisplay() const override { return _worker != nullptr; }
   bool refreshBusy(EpdBus&) const override { return _working.load(); }
@@ -80,6 +87,8 @@ class EpdiyDriver : public PanelDriver {
   bool _ready = false;
   bool _faulted = false;
   bool _panelKnown = false;  // false until a clear has put the glass in a known state
+  DisplayCalibration _calibration{};
+  bool _calibrationDirty=false;
   uint8_t* _lsb = nullptr;
   uint8_t* _msb = nullptr;
   enum EpdDrawMode _lastBaseMode = MODE_GL16;

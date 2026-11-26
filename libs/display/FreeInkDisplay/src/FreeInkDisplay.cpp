@@ -262,6 +262,10 @@ void FreeInkDisplay::selectDriver() {
 }
 
 const char* FreeInkDisplay::getControllerName() const { return _driver ? _driver->controllerName() : nullptr; }
+bool FreeInkDisplay::supportsCalibration() const { return _driver && _driver->supportsCalibration(); }
+bool FreeInkDisplay::setCalibration(const DisplayCalibration& value) {
+  return _driver && !refreshBusy() && value.valid() && _driver->setCalibration(value);
+}
 
 void FreeInkDisplay::begin() {
   cancelGrayscalePass();

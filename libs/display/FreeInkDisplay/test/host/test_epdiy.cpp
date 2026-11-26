@@ -1,6 +1,31 @@
 #include "src/driver/EpdiyDriver.h"
 #include <future>
 #include <cstdio>
+#include <vector>
+#include <cmath>
+static void calibrationPixels() {
+  using namespace freeink;
+  for(auto size: {std::pair<int,int>{16,8},{1216,684}}) {
+    const auto [w,h]=size;const size_t bytes=size_t(w)*h/2;
+    const std::vector<int> shifts=w==16?std::vector<int>{-40,-17,-16,-15,-4,-3,-2,-1,0,1,2,3,4,15,16,17,40}:std::vector<int>{-40,-3,0,3,40};
+    std::vector<uint8_t> original(bytes),actual(bytes+2);
+    for(size_t i=0;i<bytes;++i)original[i]=uint8_t(i*71+i/13);
+    for(int dx:shifts)for(int dy:shifts) {
+      actual.front()=0xa5;actual.back()=0x5a;std::copy(original.begin(),original.end(),actual.begin()+1);
+      translateGray4(actual.data()+1,w,h,dx,dy);
+      for(int y=0;y<h;++y)for(int x=0;x<w;++x) {
+        const int sx=x-dx,sy=y-dy;
+        const uint8_t expected=sx<0 || sx>=w || sy<0 || sy>=h?15:(original[(sy*w+sx)/2]>>((sx&1)*4))&15;
+        assert(((actual[1+(y*w+x)/2]>>((x&1)*4))&15)==expected);
+      }
+      assert(actual.front()==0xa5 && actual.back()==0x5a);
+    }
+  }
+  DisplayCalibration c{{20,-20,-20,20}};assert(c.valid() && c.x()==40 && c.y()==-40);
+  float x=(600.0f+c.nativeX())/1216,y=(300.0f+c.nativeY())/684;
+  assert(c.unmap(x,y,1216,684) && std::abs(x*1216-600)<.001 && std::abs(y*684-300)<.001);
+  x=1;y=1;assert(!c.unmap(x,y,1216,684));c.side[0]=21;assert(!c.valid());
+}
 namespace freeink {
 const EpdiyConfig& testConfig() {
   static EpdBoardDefinition board;
@@ -12,6 +37,7 @@ const EpdiyConfig& testConfig() {
 }
 int main() {
   using namespace freeink;
+  calibrationPixels();
   EpdBus bus;
   std::array<uint8_t, 16> frame{};
   {
@@ -109,6 +135,27 @@ int main() {
     driver.displayGray8Start(bus,gray.data(),16,RefreshMode::TextClean);driver.displayFinish(bus,nullptr);
     assert(panel::clears==clears+1 && panel::lastKind==1);
     assert(panel::lastWaveform==testConfig().whiteRefreshWaveform && gray==original);
+  }
+  {
+    EpdiyDriver driver(testConfig());driver.begin(bus);
+    DisplayCalibration offset{{3,0,0,1}};
+    assert(driver.setCalibration(offset));
+    std::array<uint8_t,128> gray{};for(unsigned i=0;i<gray.size();++i)gray[i]=uint8_t((i%16)*17);
+    const auto original=gray;
+    panel::block();driver.displayGray8Start(bus,gray.data(),16,RefreshMode::Text);panel::waitEntered();
+    assert(!driver.setCalibration({}));panel::release();driver.displayFinish(bus,nullptr);
+    assert(driver.lastRefreshMetrics().clean && gray==original);
+    for(int y=0;y<8;++y)for(int x=0;x<16;++x) {
+      const int sx=x+3,sy=y+1;
+      const int expected=sx<16 && sy<8?sx:15;
+      assert(((panel::framebuffer[(y*16+x)/2]>>((x&1)*4))&15)==expected);
+    }
+    driver.displayGray8Start(bus,gray.data(),16,RefreshMode::Text);driver.displayFinish(bus,nullptr);
+    assert(driver.lastRefreshMetrics().gray_levels==4 && !driver.lastRefreshMetrics().clean && gray==original);
+    offset.side[0]=21;assert(!driver.setCalibration(offset));
+    assert(driver.setCalibration({}));driver.displayGray8Start(bus,gray.data(),16,RefreshMode::Fast);driver.displayFinish(bus,nullptr);
+    assert(driver.lastRefreshMetrics().clean);
+    for(unsigned i=0;i<64;++i)assert(panel::framebuffer[i]==uint8_t(2*i%16 | ((2*i+1)%16)<<4));
   }
   joinTasks();
   failTaskAllocation = true;

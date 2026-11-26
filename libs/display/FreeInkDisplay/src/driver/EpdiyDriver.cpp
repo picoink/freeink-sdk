@@ -169,6 +169,8 @@ void EpdiyDriver::deepSleep(EpdBus& bus) {
 // so the first draw clears the glass and draws from white. A board can supply
 // its white-conditioning waveform for subsequent full refreshes.
 bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
+  // Moving the content also has to erase its old edge marks.
+  if(_calibrationDirty){full=true;mode=MODE_GC16;}
 #if __has_include(<ResourceCoordinator.h>)
   // A foreground flash caller may be waiting for this scan. Release the
   // barrier here, without depending on that caller returning to the UI loop.
@@ -263,6 +265,7 @@ bool EpdiyDriver::update(enum EpdDrawMode mode, bool full) {
   _panelKnown = err == EPD_DRAW_SUCCESS;
   _faulted = !_panelKnown;
   _success.store(_panelKnown);
+  if(_panelKnown)_calibrationDirty=false;
 #if CONFIG_PM_ENABLE
   if (awake) { esp_pm_lock_release(awake); esp_pm_lock_delete(awake); }
 #endif
@@ -273,6 +276,7 @@ void EpdiyDriver::prepare(const uint8_t* fb, RefreshMode mode) {
   const PanelGeometry g = geometry();
   auto* dst = reinterpret_cast<uint32_t*>(epd_hl_get_framebuffer(&_hl));
   for (uint32_t i = 0; i < g.bufferSize; ++i) dst[i] = gExpand[fb[i]];
+  translateGray4(reinterpret_cast<uint8_t*>(dst),g.width,g.height,_calibration.nativeX(),_calibration.nativeY());
   _lastBaseMode = modeFor(mode);
 }
 void EpdiyDriver::display(EpdBus& bus, const uint8_t* fb, const uint8_t*, RefreshMode mode, bool) {
@@ -298,8 +302,8 @@ __attribute__((optimize("O3"))) bool EpdiyDriver::displayGray8Start(EpdBus& bus,
   const auto g = geometry();
   if (!_ready || !pixels || stride < g.width || _faulted) { _success.store(false); return false; }
   _jobReading=mode==RefreshMode::Text || mode==RefreshMode::Text16 || mode==RefreshMode::TextClean;
-  _jobFull=mode==RefreshMode::Full || mode==RefreshMode::Half || mode==RefreshMode::TextClean || (_jobReading && _readingTurns>=13);
-  _jobGray4=(mode==RefreshMode::Text || mode==RefreshMode::TextStatus || mode==RefreshMode::TextClean) && _cfg.readingWaveform && _rawTarget && !_gray4Disabled && (!_jobFull || !_panelKnown);
+  _jobFull=_calibrationDirty || mode==RefreshMode::Full || mode==RefreshMode::Half || mode==RefreshMode::TextClean || (_jobReading && _readingTurns>=13);
+  _jobGray4=!_calibrationDirty && (mode==RefreshMode::Text || mode==RefreshMode::TextStatus || mode==RefreshMode::TextClean) && _cfg.readingWaveform && _rawTarget && !_gray4Disabled && (!_jobFull || !_panelKnown);
   _lastBaseMode = _jobFull ? MODE_GC16 : MODE_GL16;
   if(_worker){_targetReady.store(false);_queuedAt=micros();_working.store(true);xTaskNotifyGive(_worker);}
   auto* dst = epd_hl_get_framebuffer(&_hl);
@@ -325,6 +329,8 @@ __attribute__((optimize("O3"))) bool EpdiyDriver::displayGray8Start(EpdBus& bus,
       output[x/2]=_jobGray4 ? uint8_t(((packed>>2)&0x33)*5) : packed;
     }
   }
+  translateGray4(dst,g.width,g.height,_calibration.nativeX(),_calibration.nativeY());
+  if(_jobGray4)translateGray4(_rawTarget,g.width,g.height,_calibration.nativeX(),_calibration.nativeY());
   _targetReady.store(true,std::memory_order_release);
   if (!_worker) { update(_lastBaseMode, _jobFull); return false; }
   return true;
@@ -392,7 +398,10 @@ void EpdiyDriver::displayGray(EpdBus& bus, const uint8_t* fb, bool turnOff, cons
       const uint8_t mask = 0x80 >> bit;
       if (!((l | m) & mask)) continue;
       const uint8_t level = (l & mask) ? kDark : kLight;
-      const uint32_t px = i * 8 + bit;
+      const int source=i*8+bit;
+      const int x=source%g.width+_calibration.nativeX(),y=source/g.width+_calibration.nativeY();
+      if(x<0 || x>=g.width || y<0 || y>=g.height)continue;
+      const uint32_t px = y*g.width+x;
       uint8_t& cell = dst[px / 2];
       cell = (px & 1) ? static_cast<uint8_t>((cell & 0x0F) | (level << 4)) : static_cast<uint8_t>((cell & 0xF0) | level);
     }

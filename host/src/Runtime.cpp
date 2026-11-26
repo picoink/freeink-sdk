@@ -51,7 +51,7 @@ void commitHitRegions() {
   std::lock_guard<std::mutex> lock(r.frameMutex);
   r.frame.hits = r.drawingHits;
 }
-void publishFrame(const uint8_t* bits, int width, int height, int grayStride) {
+void publishFrame(const uint8_t* bits, int width, int height, int grayStride,int dx,int dy) {
   HostScope scope;
   auto& r = runtime();
   Frame f;
@@ -84,12 +84,19 @@ void publishFrame(const uint8_t* bits, int width, int height, int grayStride) {
           py = height - 1 - y;
           break;
       }
-      f.pixels[size_t(y) * f.width + x] =
+      px-=dx;py-=dy;
+      f.pixels[size_t(y) * f.width + x] = px<0 || px>=width || py<0 || py>=height?255:
           grayStride ? uint8_t(((unsigned(bits[size_t(py)*grayStride+px])+8)/17)*17) :
           (bits[size_t(py) * (width / 8) + px / 8] & (0x80 >> (px % 8))) ? 255 : 0;
     }
   f.texts = r.drawingTexts;
   f.hits = r.drawingHits;
+  int lx=dx,ly=dy;
+  if(o==O::Portrait){lx=-dy;ly=dx;}
+  else if(o==O::PortraitInverted){lx=dy;ly=-dx;}
+  else if(o==O::LandscapeClockwise){lx=-dx;ly=-dy;}
+  for(auto& t:f.texts){t.x+=lx;t.y+=ly;}
+  for(auto& h:f.hits){h.x+=lx;h.y+=ly;}
   if (r.inspect) f.state = r.inspect();
   std::lock_guard<std::mutex> lock(r.frameMutex);
   f.sequence = r.frame.sequence + 1;

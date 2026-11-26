@@ -19,6 +19,7 @@
 #include "../bus/EpdBus.h"
 
 namespace freeink {
+struct DisplayCalibration;
 
 enum class RefreshMode : uint8_t { Full, Half, Fast, Text, Text16, TextStatus, TextClean };
 enum class GrayPlane : uint8_t { Lsb, Msb };
@@ -71,6 +72,8 @@ class PanelDriver {
   virtual RefreshMetrics lastRefreshMetrics() const { return {}; }
   virtual bool lastRefreshSucceeded() const { return true; }
   virtual bool supportsGray8() const { return false; }
+  virtual bool supportsCalibration() const { return false; }
+  virtual bool setCalibration(const DisplayCalibration&) { return false; }
   // Borrowed luminance target (0 black, 255 white). A deferred driver must copy
   // all pixels before returning; completion uses the ordinary finish contract.
   virtual bool displayGray8Start(EpdBus&, const uint8_t*, uint16_t, RefreshMode) { return false; }
