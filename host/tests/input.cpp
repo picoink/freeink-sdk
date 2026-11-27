@@ -81,7 +81,8 @@ int main() {
   E event;
   input.hostTap(.2f,.3f);
   input.hostKey(InputManager::BTN_DOWN,true);
-  input.hostSwipe(.1f,.2f,.8f,.2f);
+  input.hostContact(.1f,.2f,0,true);
+  input.hostContact(.8f,.2f,200,false);
   input.hostKey(InputManager::BTN_DOWN,false);
   uint32_t sequence=0;
   for (auto kind : {E::Tap,E::Key,E::Swipe,E::Key}) {

@@ -24,7 +24,9 @@ static void calibrationPixels() {
   DisplayCalibration c{{20,-20,-20,20}};assert(c.valid() && c.x()==40 && c.y()==-40);
   float x=(600.0f+c.nativeX())/1216,y=(300.0f+c.nativeY())/684;
   assert(c.unmap(x,y,1216,684) && std::abs(x*1216-600)<.001 && std::abs(y*684-300)<.001);
-  x=1;y=1;assert(!c.unmap(x,y,1216,684));c.side[0]=21;assert(!c.valid());
+  x=1;y=1;assert(!c.unmap(x,y,1216,684));
+  x=1;y=1;assert(c.unmap(x,y,1216,684,true) && x==1 && y==1);
+  c.side[0]=21;assert(!c.valid());
 }
 namespace freeink {
 const EpdiyConfig& testConfig() {

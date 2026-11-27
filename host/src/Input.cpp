@@ -180,6 +180,19 @@ void InputManager::hostTap(float x, float y) {
     freeink::OrderedInput e{}; e.kind = freeink::OrderedInput::Tap; e.x = x; e.y = y; publishEventLocked(e);
   }
 }
+void InputManager::hostContact(float x,float y,uint32_t ms,bool down) {
+  // The native Metalio coordinate plane is 1216 x 684, independent of rotation.
+  const int px=int(x*1215+0.5f),py=int(y*683+0.5f);
+  if(down && !touchHeld_) {
+    gesture_.begin(px,py,ms);gestureX_=x;gestureY_=y;touchHeld_=true;return;
+  }
+  if(!touchHeld_)return;
+  if(down){gesture_.sample(px,py,ms);return;}
+  touchHeld_=false;
+  const auto result=gesture_.finish(px,py,ms);
+  if(result==freeink::TouchGesture::Result::Swipe)hostSwipe(gestureX_,gestureY_,x,y);
+  else if(result==freeink::TouchGesture::Result::Tap)hostTap(gestureX_,gestureY_);
+}
 void InputManager::hostSwipe(float x, float y, float x1, float y1) {
   HostScope host;
   std::lock_guard<std::mutex> lock(mutex_);

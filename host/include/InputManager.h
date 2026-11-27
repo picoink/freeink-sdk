@@ -1,5 +1,6 @@
 #pragma once
 #include <OrderedInput.h>
+#include <TouchGesture.h>
 #include <array>
 #include <deque>
 #include <mutex>
@@ -50,9 +51,12 @@ class InputManager {
   void hostHome(bool held);
   void hostTouch(bool held) { touchHeld_ = held; }
   void hostTap(float x, float y);
-  void hostSwipe(float x, float y, float x1, float y1);
+  void hostContact(float x,float y,uint32_t ms,bool down);
 
  private:
+  freeink::TouchGesture gesture_;
+  float gestureX_=0,gestureY_=0;
+  void hostSwipe(float x, float y, float x1, float y1);
   mutable std::mutex mutex_;
   std::deque<freeink::OrderedInput> events_;
   void publishEventLocked(freeink::OrderedInput);

@@ -76,7 +76,7 @@ void capsuleSlider(Frame<MaxInteractions> &frame, Rect rect, const CapsuleSlider
   // The fill and handle round by the same themed radius, clamped to the
   // half-height cap the stadium uses.
   const uint8_t innerRadius = props.radius >= cap ? static_cast<uint8_t>(cap) : props.radius;
-  const Paint fill = props.enabled ? props.fill : Paint::dither(Color::LightGray);
+  const Paint fill = props.enabled ? props.fill : Paint::solid(Color::DarkGray);
   frame.target().fill(Rect{inner.x, inner.y, fillW, inner.height}, fill, innerRadius);
   frame.target().stroke(rect, props.border, static_cast<uint8_t>(stroke), radius);
   // The handle is drawn in the track color with its own outline so it stays

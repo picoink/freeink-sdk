@@ -631,7 +631,7 @@ class DisplayTarget final : public DrawTarget {
   int16_t runAdvance(const BitmapFont& f, const uint32_t cp) const {
     if (cp == 0x2026) {  // U+2026 HORIZONTAL ELLIPSIS -> "..."
       const FontGlyph* dot = glyphFor(f, '.');
-      return static_cast<int16_t>(dot ? dot->xAdvance * 3 : 0);
+      if (dot) return static_cast<int16_t>(dot->xAdvance * 3);
     }
     const FontGlyph* g = glyphFor(f, cp);
     if (g) return g->xAdvance;
@@ -689,8 +689,10 @@ class DisplayTarget final : public DrawTarget {
       s += decodeUtf8(s, cp);
       if (cp == 0x2026) {
         const FontGlyph* dot = glyphFor(f, '.');
-        if (dot) for (int i = 0; i < 3; ++i) { drawGlyph(f, *dot, penX, baseline, ink, inkColor); penX += dot->xAdvance; }
-        continue;
+        if (dot) {
+          for (int i = 0; i < 3; ++i) { drawGlyph(f, *dot, penX, baseline, ink, inkColor); penX += dot->xAdvance; }
+          continue;
+        }
       }
       const FontGlyph* g = glyphFor(f, cp);
       if (g) { drawGlyph(f, *g, penX, baseline, ink, inkColor); penX = static_cast<int16_t>(penX + g->xAdvance); }

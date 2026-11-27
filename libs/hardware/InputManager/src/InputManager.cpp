@@ -901,11 +901,9 @@ void InputManager::normalizeTouchPoint(const uint16_t x, const uint16_t y, float
 bool InputManager::wasTouchTap(float& nx, float& ny) const {
 #if FREEINK_CAP_TOUCH
   if (!touchReleasedEvent || touchSuppressed || touchMultiContactSequence) return false;
-  // Hold/long-press detection uses the tighter 28 px stationary slop, but a
-  // released tap remains valid until motion reaches the 60 px swipe threshold.
-  // Using the stationary threshold here created a 29..59 px dead band where a
-  // normal finger roll was neither a tap nor a swipe.
-  if (touchMovedBeyondTapReleaseSlop) return false;
+  const int dx=int(touchUpPoint.x)-int(touchDownPoint.x),dy=int(touchUpPoint.y)-int(touchDownPoint.y);
+  if(freeink::TouchGesture::classify(dx,dy,lastTouchHeldDurationMs,
+      touchMovedBeyondTapReleaseSlop,touchLongPressFired)!=freeink::TouchGesture::Result::Tap)return false;
   // Tap position = the FIRST contact sample (touch-down), not the last: the
   // reported centroid drifts 10-20px as a finger rolls off during lift, which
   // made small targets (steppers) feel unreliable with release-point routing.
@@ -989,12 +987,10 @@ bool InputManager::wasSwipe(float& nxStart, float& nyStart, float& nxEnd, float&
   // A flick: travelled past a distance threshold within a time window. Distance
   // is measured in native px; the dominant axis is left to the app (after
   // mapping to its logical frame).
-  if (lastTouchHeldDurationMs > TOUCH_SWIPE_MAX_MS) return false;
   const int dx = static_cast<int>(touchUpPoint.x) - static_cast<int>(touchDownPoint.x);
   const int dy = static_cast<int>(touchUpPoint.y) - static_cast<int>(touchDownPoint.y);
-  const int adx = absInt(dx);
-  const int ady = absInt(dy);
-  if (adx < TOUCH_SWIPE_MIN_PX && ady < TOUCH_SWIPE_MIN_PX) return false;
+  if(freeink::TouchGesture::classify(dx,dy,lastTouchHeldDurationMs,
+      touchMovedBeyondTapReleaseSlop,touchLongPressFired)!=freeink::TouchGesture::Result::Swipe)return false;
   normalizeTouchPoint(touchDownPoint.x, touchDownPoint.y, nxStart, nyStart);
   normalizeTouchPoint(touchUpPoint.x, touchUpPoint.y, nxEnd, nyEnd);
   return true;

@@ -55,7 +55,7 @@ void checkbox(Frame<MaxInteractions>& frame, Rect rect, const CheckboxProps& pro
   if (props.label) {
     Rect textRect{static_cast<int16_t>(boxRect.right() + props.gap), rect.y,
                   static_cast<int16_t>(rect.right() - boxRect.right() - props.gap), rect.height};
-    Paint labelInk = hasState(state, StateDisabled) ? Paint::dither(Color::LightGray) : Paint::solid(Color::Black);
+    Paint labelInk = hasState(state, StateDisabled) ? Paint::solid(Color::DarkGray) : Paint::solid(Color::Black);
     frame.target().text(textRect, props.label, textStyleWithForeground(props.text, labelInk));
   }
 }

@@ -17,8 +17,11 @@ struct DisplayCalibration {
   bool operator==(const DisplayCalibration& b) const { return std::equal(side,side+4,b.side); }
   // Inverse mapping before any UI orientation transform. Do not clamp touches
   // in an exposed white strip onto an unrelated edge control.
-  bool unmap(float& x,float& y,int width,int height) const {
+  bool unmap(float& x,float& y,int width,int height,bool swipeEndpoint=false) const {
     x-=float(nativeX())/width;y-=float(nativeY())/height;
+    if(swipeEndpoint) {
+      x=std::clamp(x,0.0f,1.0f);y=std::clamp(y,0.0f,1.0f);return true;
+    }
     return x>=0 && x<=1 && y>=0 && y<=1;
   }
 };

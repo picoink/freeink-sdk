@@ -32,7 +32,9 @@ StyleSet defaultButtonStyles() {
   styles.active.foreground = Paint::solid(Color::White);
 
   styles.disabled.background = Paint::solid(Color::White);
-  styles.disabled.foreground = Paint::dither(Color::LightGray);
+  styles.disabled.foreground = Paint::solid(Color::DarkGray);
+  styles.disabled.border = Paint::solid(Color::DarkGray);
+  styles.disabled.borderWidth = 1;
   return styles;
 }
 
@@ -51,7 +53,7 @@ StyleSet defaultListRowStyles() {
   styles.active = styles.selected;
 
   styles.disabled.background = Paint::solid(Color::White);
-  styles.disabled.foreground = Paint::dither(Color::LightGray);
+  styles.disabled.foreground = Paint::solid(Color::DarkGray);
   return styles;
 }
 

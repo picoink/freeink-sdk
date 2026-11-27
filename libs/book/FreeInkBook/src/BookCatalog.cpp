@@ -26,7 +26,8 @@ namespace {
 // v2: added the stored stylesheet section (compacted CssRule array), so open()
 // never re-parses CSS from the container. Existing v1 catalog.fibc files read
 // as Stale and rebuild.
-constexpr uint32_t kCatalogVersion = 2;
+// Rebuild catalogs created before navigation rejected truncated targets.
+constexpr uint32_t kCatalogVersion = 3;
 constexpr uint32_t kMagic = 0x43424946u;  // 'F''I''B''C' little-endian
 constexpr uint32_t kNoOffset = 0xFFFFFFFFu;
 constexpr uint16_t kNoSpine16 = 0xFFFFu;
