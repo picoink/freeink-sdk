@@ -107,6 +107,10 @@ class BookCatalog {
   BookStatus tocItem(size_t index, TocItem* out, char* titleBuf, size_t titleCap,
                      char* fragmentBuf, size_t fragmentCap) const;
 
+  // Navigation never uses a truncated display string. Hash the entire stored
+  // fragment using the same identifier hash as the pagination anchor index.
+  BookStatus tocTarget(size_t index, TocItem* out, uint32_t* anchorHash) const;
+
   // Last TOC entry at or before `spineIndex` (the chapter's display title);
   // -1 when the TOC has no such entry. Scans the fixed-size records in
   // chunks -- no title strings are read.

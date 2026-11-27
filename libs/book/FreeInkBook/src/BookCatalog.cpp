@@ -691,6 +691,12 @@ class NavTocFiller : public XmlHandler {
         ctx_.failed = true;
         return;
       }
+      if (strlen(resolved) >= sizeof(curHref_) ||
+          (fragment && strlen(fragment) >= sizeof(curFrag_))) {
+        ctx_.strArena->release(marked);
+        ctx_.failed = true;  // Never publish a different, truncated target.
+        return;
+      }
       strncpy(curHref_, resolved, sizeof(curHref_) - 1);
       curHref_[sizeof(curHref_) - 1] = '\0';
       if (fragment != nullptr) {
@@ -1342,6 +1348,31 @@ BookStatus BookCatalog::tocItem(const size_t index, TocItem* out, char* titleBuf
     fragmentBuf[0] = '\0';
   }
   return BookStatus::Ok;
+}
+
+BookStatus BookCatalog::tocTarget(size_t index, TocItem* out, uint32_t* anchorHash) const {
+  if (!isOpen() || !out || !anchorHash || index >= tocCount_) return BookStatus::NotFound;
+  TocRec rec;
+  if (!readCacheFully(*cache_, tocRecordsOff_ + index * sizeof(rec), &rec, sizeof(rec)))
+    return BookStatus::IoError;
+  out->spineIndex = rec.spineIndex == kNoSpine16 ? -1 : rec.spineIndex;
+  out->depth = rec.depth;
+  out->hasFragment = rec.fragmentOffset != kNoOffset;
+  *anchorHash = 0;
+  if (!out->hasFragment) return BookStatus::Ok;
+  uint32_t offset = titlePoolOff_ + rec.fragmentOffset, hash = 2166136261u;
+  while (offset < tocRecordsOff_) {
+    unsigned char bytes[64];
+    const auto n = cache_->readAt(kCatalogName, offset, bytes,
+                                 tocRecordsOff_ - offset < sizeof(bytes) ? tocRecordsOff_ - offset : sizeof(bytes));
+    if (n <= 0) return BookStatus::IoError;
+    for (int32_t i = 0; i < n; ++i) {
+      if (!bytes[i]) { *anchorHash = hash; return BookStatus::Ok; }
+      hash = (hash ^ bytes[i]) * 16777619u;
+    }
+    offset += n;
+  }
+  return BookStatus::IoError;
 }
 
 int BookCatalog::tocIndexForSpine(const int spineIndex) const {
