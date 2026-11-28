@@ -36,8 +36,11 @@ void mountedEvent(void*,esp_event_base_t,int32_t,void*) {
 
 void routeStorage(bool active) {
 #if FREEINK_DEVICE_METALIO_EINK4_PLUS
-  // Rev1.4 routes the cable between independent HS storage and debug PHYs.
+  // The two PHYs share one cable. Expose a disconnected bus between device
+  // identities so the host hub can debounce detach before enumerating again.
+  if (!active) delay(250);
   pinMode(36, OUTPUT); digitalWrite(36, active ? LOW : HIGH);
+  if (active) delay(250);
 #else
   (void)active;
 #endif
@@ -160,7 +163,6 @@ bool UsbMassStorage::begin(FsBlockDeviceInterface* dev, uint16_t sectorSize) {
   gSectorScratch=static_cast<uint8_t*>(heap_caps_malloc(sectorSize,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
   if(!gSectorScratch)return false;
   gBlockSize = sectorSize;
-  routeStorage(true);
   if (!gEventsRegistered) {
     USB.onEvent(ARDUINO_USB_STARTED_EVENT,mountedEvent);
     gEventsRegistered=true;
@@ -184,7 +186,6 @@ bool UsbMassStorage::begin(FsBlockDeviceInterface* dev, uint16_t sectorSize) {
     gOwner.store(nullptr);
     gDev.store(nullptr);
     _state.store(UsbMassStorageState::Idle);
-    routeStorage(false);
     return false;
   }
   if (!USB.begin()) {
@@ -193,9 +194,12 @@ bool UsbMassStorage::begin(FsBlockDeviceInterface* dev, uint16_t sectorSize) {
     gOwner.store(nullptr);
     gDev.store(nullptr);
     _state.store(UsbMassStorageState::Idle);
-    routeStorage(false);
     return false;
   }
+#if FREEINK_DEVICE_METALIO_EINK4_PLUS
+  tud_disconnect();
+#endif
+  routeStorage(true);
   _active = true;
   gAccepting.store(true);
   tud_connect();  // Reconnect when re-entering MSC after a prior session.
