@@ -155,9 +155,10 @@ subscription and input. It covers scan/open teardown races, timeout cancellation
 notification flooding and retrying the final host release while retaining PAN.
 The PAN suite also checks both lease-release orders and shared-host failures.
 Neither suite establishes a radio connection. The Bluedroid runner also drives
-the PageTurner worker with deterministic task stepping: per-device bindings,
-release-based learning, save rejection, full-queue cancellation, input and sleep
-generation acknowledgements.
+the PageTurner worker through switching between two bonds, reconnecting the
+selected peer after a failed switch, delivering press and release edges with
+their source address, rejecting a failed preference write and waiting for the
+current sleep generation. The consuming application tests its button mappings.
 
 ## Frontlight driver
 

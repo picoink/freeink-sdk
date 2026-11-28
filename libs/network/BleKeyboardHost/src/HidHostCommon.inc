@@ -550,3 +550,18 @@ void BleKeyboardHost::persistBonds() {
   p.end();
 }
 
+
+
+bool BleKeyboardHost::connectOnly(const char* addr) {
+  if (!addr || !addr[0]) return false;
+  portENTER_CRITICAL(&g_mux);
+  g_autoReconnect = false;
+  clearSelectedPlanLocked();
+  portEXIT_CRITICAL(&g_mux);
+  if (!connectInternal(addr, false)) return false;
+  portENTER_CRITICAL(&g_mux);
+  snprintf(g_selectedAddr, sizeof(g_selectedAddr), "%s", addr);
+  g_selectedAttemptsLeft = 0; // A later link loss re-arms only this address.
+  portEXIT_CRITICAL(&g_mux);
+  return true;
+}

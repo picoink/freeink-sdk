@@ -24,66 +24,65 @@ int main() {
   command(Turner::Command::Enable, 1);
   registered();
   freeink::turner::step();
-  hid.onLinkUp("01:02:03:04:05:06", "Remote One", 0);
+  Turner::Request select{};
+  select.command = Turner::Command::Connect;
+  strcpy(select.address, "01:02:03:04:05:06");
+  assert(service.request(select));
   freeink::turner::step();
+  // Only a completed link becomes the active device.
+  assert(!service.snapshot().selected[0]);
+  completeDiscovery(hid);
+  freeink::turner::step();
+  assert(!strcmp(service.snapshot().selected, select.address));
   Turner::Event e{};
   report(true);
   report(false);
-  assert(service.pop(e) && e.action == Turner::Action::Next);
-  assert(!service.pop(e));
-  command(Turner::Command::Learn, 1);
-  report(true);
-  assert(service.snapshot().learning == 1);
-  assert(!service.pop(e));
-  report(false);
-  assert(!service.snapshot().learning);
-  auto first = service.snapshot().bindings[0].codes[0];
-  assert(first);
-  report(true);
-  report(false);
-  assert(service.pop(e) && e.action == Turner::Action::Previous);
-  // The same physical report has independent bindings on another remote.
-  hid.onLinkDown();
-  hid.onLinkUp("11:12:13:14:15:16", "Remote Two", 0);
+  assert(service.pop(e) && e.raw.pressed && e.raw.keycode == 0x4F &&
+         !strcmp(e.address, select.address));
+  assert(service.pop(e) && !e.raw.pressed && !service.pop(e));
+  // A second peer never removes the previous bond.
+  strcpy(select.address, "11:12:13:14:15:16");
+  assert(service.request(select));
   freeink::turner::step();
-  command(Turner::Command::Learn, 3);
-  report(true);
-  report(false);
-  assert(service.snapshot().bindings[0].codes[0] == first);
-  assert(service.snapshot().bindings[1].codes[2]);
-  report(true);
-  report(false);
-  assert(service.pop(e) && e.action == Turner::Action::Refresh);
-  // Failed writes do not change a working binding or enabled preference.
+  assert(!strcmp(service.snapshot().selected, "01:02:03:04:05:06"));
+  closed();
+  freeink::turner::step();
+  completeDiscovery(hid);
+  freeink::turner::step();
+  assert(service.snapshot().pairedCount == 2 &&
+         !strcmp(service.snapshot().selected, select.address));
+  // A failed handoff returns to the selected radio peer and preserves both
+  // bonds.
+  Turner::Request missing = select;
+  strcpy(missing.address, "aa:bb:cc:dd:ee:ff");
+  assert(service.request(missing));
+  freeink::turner::step();
+  closed();
+  freeink::turner::step();
+  esp_ble_gattc_cb_param_t failure{};
+  memcpy(failure.open.remote_bda, peer, 6);
+  failure.open.status = 1;
+  event(ESP_GATTC_OPEN_EVT, failure);
+  freeink::turner::step();
+  freeink::turner::step();
+  freeink::turner::step();
+  assert(!strcmp(peerText, select.address));
+  completeDiscovery(hid);
+  freeink::turner::step();
+  assert(service.snapshot().pairedCount == 2 &&
+         !strcmp(service.snapshot().connectedAddress, select.address));
   Preferences::saveOk = false;
-  command(Turner::Command::Learn, 1);
-  report(true);
-  report(false);
-  assert(!service.snapshot().bindings[1].codes[0]);
-  assert(service.snapshot().bindings[1].codes[2]);
   command(Turner::Command::Enable, 0);
   assert(service.snapshot().enabled);
   Preferences::saveOk = true;
-  // Cancellation wins even when a full command queue includes stale learning.
   Turner::Request r{};
-  r.command = Turner::Command::Learn;
-  r.value = 1;
-  for (int i = 0; i < 7; ++i)
-    assert(service.request(r));
-  assert(!service.request(r));
-  r.command = Turner::Command::CancelLearn;
-  assert(service.request(r));
-  freeink::turner::step();
-  assert(!service.snapshot().learning);
-  command(Turner::Command::Learn, 2);
-  nowMs += 30001;
-  freeink::turner::step();
-  assert(!service.snapshot().learning);
   // Sleep waits for the worker's current-generation acknowledgement and GATT.
   assert(!service.suspend());
   assert(!service.request(r));
   freeink::turner::step();
   assert(!service.suspend());
+  closed();
+  freeink::turner::step();
   event(ESP_GATTC_UNREG_EVT);
   freeink::turner::step();
   assert(service.suspend());
@@ -93,12 +92,17 @@ int main() {
   freeink::turner::step();
   assert(service.snapshot().enabled && hid.isRunning());
   registered();
+  // Reconnect may already have issued an open. Shutdown waits for its
+  // cancellation.
+  assert(hid.isConnecting());
   // A second suspend cannot reuse the previous cycle's acknowledgement.
   assert(!service.suspend());
+  freeink::turner::step();
+  event(ESP_GATTC_CANCEL_OPEN_EVT);
   freeink::turner::step();
   event(ESP_GATTC_UNREG_EVT);
   freeink::turner::step();
   assert(service.suspend());
-  puts("Page turner per-device learning, input, persistence failure, "
+  puts("Page turner exclusive connections, raw input, persistence failure, "
        "cancellation and sleep generation tests passed");
 }

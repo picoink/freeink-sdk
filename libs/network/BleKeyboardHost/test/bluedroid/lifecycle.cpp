@@ -21,30 +21,7 @@ static void closed() {
   memcpy(p.close.remote_bda, peer, 6);
   event(ESP_GATTC_CLOSE_EVT, p);
 }
-int main() {
-  auto &host = BleKeyboardHost::getInstance();
-  BluetoothHost::acquire(BluetoothHost::Profile::Pan);
-  failEventAllocation=true;
-  assert(!host.begin());
-  assert(BluetoothHost::leases==1 && !accepting.load());
-  failEventAllocation=false;
-  assert(host.begin());
-  assert(eventAllocationCaps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
-  assert(eventAllocationBytes==24*sizeof(Event));
-  assert(!host.connect("broken"));
-  registered();
-  // Stop while configuring a scan: late start must never outlive the lease.
-  host.startScan();
-  assert(host.isScanning());
-  assert(!host.end(0));
-  gap(ESP_GAP_BLE_SET_EXT_SCAN_PARAMS_COMPLETE_EVT);
-  assert(!host.end(0));
-  event(ESP_GATTC_UNREG_EVT);
-  assert(host.end(0));
-  assert(BluetoothHost::leases == 1);
-  assert(host.begin());
-  registered();
-  assert(host.connect("01:02:03:04:05:06"));
+static void completeDiscovery(BleKeyboardHost& host) {
   esp_ble_gattc_cb_param_t p{};
   p.open.conn_id = 7;
   memcpy(p.open.remote_bda, peer, 6);
@@ -90,6 +67,33 @@ int main() {
   p.write.handle = 22;
   event(ESP_GATTC_WRITE_DESCR_EVT, p);
   assert(host.isConnected());
+}
+int main() {
+  auto &host = BleKeyboardHost::getInstance();
+  BluetoothHost::acquire(BluetoothHost::Profile::Pan);
+  failEventAllocation=true;
+  assert(!host.begin());
+  assert(BluetoothHost::leases==1 && !accepting.load());
+  failEventAllocation=false;
+  assert(host.begin());
+  assert(eventAllocationCaps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+  assert(eventAllocationBytes==24*sizeof(Event));
+  assert(!host.connect("broken"));
+  registered();
+  // Stop while configuring a scan: late start must never outlive the lease.
+  host.startScan();
+  assert(host.isScanning());
+  assert(!host.end(0));
+  gap(ESP_GAP_BLE_SET_EXT_SCAN_PARAMS_COMPLETE_EVT);
+  assert(!host.end(0));
+  event(ESP_GATTC_UNREG_EVT);
+  assert(host.end(0));
+  assert(BluetoothHost::leases == 1);
+  assert(host.begin());
+  registered();
+  assert(host.connect("01:02:03:04:05:06"));
+  completeDiscovery(host);
+  esp_ble_gattc_cb_param_t p{};
   assert(host.pairedCount() == 1);
   uint8_t report[] = {0, 0, 0x4F, 0, 0, 0, 0, 0};
   p = {};

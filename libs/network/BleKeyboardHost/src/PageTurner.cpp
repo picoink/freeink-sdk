@@ -10,12 +10,11 @@
 namespace freeink {
 namespace turner {
 using Command = PageTurner::Command;
-using Action = PageTurner::Action;
+
 using Snapshot = PageTurner::Snapshot;
 struct Config {
   uint8_t enabled = 0;
   char selected[18]{};
-  PageTurner::Binding bindings[BleKeyboardHost::kMaxBonds]{};
 };
 std::mutex mutex;
 TaskHandle_t task = nullptr;
@@ -24,12 +23,11 @@ PageTurner::Event events[16]{};
 uint8_t requestHead = 0, requestTail = 0, eventHead = 0, eventTail = 0;
 Snapshot published{}, current{};
 Config config{};
-bool suspended = false, initialized = false, cancelRequested = false;
+bool suspended = false, initialized = false;
 uint32_t generation = 0, stoppedGeneration = UINT32_MAX;
-uint8_t learning = 0;
-uint32_t learningSince = 0, candidate = 0, passkeySince = 0, retryAt = 0;
-char learningPeer[18]{}, forgetting[18]{};
-bool armSelected = false;
+uint32_t switchAt = 0, passkeySince = 0, retryAt = 0;
+char nextPeer[18]{}, connectingPeer[18]{}, forgetting[18]{};
+bool armSelected = false, scanRequested = false;
 auto &host = BleKeyboardHost::getInstance();
 void message(const char *value) {
   snprintf(current.message, sizeof(current.message), "%s", value);
@@ -40,7 +38,7 @@ bool save(const Config &value) {
     message("无法保存翻页器设置");
     return false;
   }
-  const bool ok = p.putBytes("config", &value, sizeof(value)) == sizeof(value);
+  const bool ok = p.putBytes("link", &value, sizeof(value)) == sizeof(value);
   p.end();
   if (ok)
     config = value;
@@ -52,109 +50,43 @@ void load() {
   Preferences p;
   Config value{};
   if (p.begin("freeink-turner", true)) {
-    if (p.getBytes("config", &value, sizeof(value)) == sizeof(value) &&
-        value.enabled <= 1) {
+    // The connection preferences are the prefix of the original NVS record.
+    uint8_t record[192];
+    size_t size = p.getBytes("link", record, sizeof(record));
+    if (!size)
+      size = p.getBytes("config", record, sizeof(record));
+    if (size >= sizeof(value) && size <= sizeof(record)) {
+      memcpy(&value, record, sizeof(value));
       value.selected[17] = 0;
-      for (auto &b : value.bindings)
-        b.address[17] = 0;
-      config = value;
+      if (value.enabled <= 1)
+        config = value;
     }
     p.end();
   }
 }
-PageTurner::Binding *binding(Config &value, const char *address,
-                             bool create = false) {
-  if (!address || !address[0])
-    return nullptr;
-  for (auto &b : value.bindings)
-    if (!strcmp(b.address, address))
-      return &b;
-  if (create)
-    for (auto &b : value.bindings)
-      if (!b.address[0]) {
-        snprintf(b.address, sizeof(b.address), "%s", address);
-        return &b;
-      }
-  return nullptr;
-}
-void cancelLearning() {
-  learning = 0;
-  candidate = 0;
-  learningPeer[0] = 0;
-}
-void send(Action action, uint32_t time) {
-  if (action == Action::None)
-    return;
-  std::lock_guard<std::mutex> lock(mutex);
-  if (suspended)
-    return;
-  const auto next = uint8_t((eventHead + 1) % 16);
-  if (next != eventTail) {
-    events[eventHead] = {action, time};
-    eventHead = next;
-  }
+bool paired(const char *address) {
+  for (unsigned i = 0; i < host.pairedCount(); ++i)
+    if (!strcmp(host.paired(i).addr, address))
+      return true;
+  return false;
 }
 void processInput() {
   RawButtonEvent edge{};
   while (host.popRawButton(edge)) {
-    const char *peer = host.connectedAddr();
-    if (!host.isConnected())
+    if (!host.isConnected() || strcmp(host.connectedAddr(), config.selected))
       continue;
-    if (learning) {
-      if (strcmp(peer, learningPeer)) {
-        cancelLearning();
-        message("设备已切换，请重新学习按键");
-        continue;
-      }
-      if (edge.pressed) {
-        if (!candidate)
-          candidate = edge.code();
-        continue;
-      }
-      if (!candidate || edge.code() != candidate)
-        continue;
-      if (edge.wasRest) {
-        candidate = 0;
-        continue;
-      }
-      Config value = config;
-      auto *b = binding(value, peer, true);
-      if (!b) {
-        message("按键记录已满，请先移除不用的设备");
-        cancelLearning();
-        continue;
-      }
-      // One physical button has one action on a given peripheral.
-      for (auto &code : b->codes)
-        if (code == candidate)
-          code = 0;
-      b->codes[learning - 1] = candidate;
-      if (save(value))
-        message("按键已保存");
-      cancelLearning();
+    std::lock_guard<std::mutex> lock(mutex);
+    const auto next = uint8_t((eventHead + 1) % 16);
+    if (suspended || next == eventTail)
       continue;
-    }
-    if (!edge.pressed)
-      continue;
-    Action action = Action::None;
-    if (auto *b = binding(config, peer))
-      for (uint8_t i = 0; i < 3; ++i)
-        if (b->codes[i] && b->codes[i] == edge.code())
-          action = Action(i + 1);
-    if (action == Action::None) {
-      // Keyboard defaults are only a fallback for buttons with no learned
-      // binding.
-      if (edge.keycode == 0x50 || edge.keycode == 0x52 || edge.keycode == 0x4B)
-        action = Action::Previous;
-      if (edge.keycode == 0x4F || edge.keycode == 0x51 ||
-          edge.keycode == 0x4E || edge.keycode == 0x2C)
-        action = Action::Next;
-    }
-    send(action, edge.atMs);
+    auto &event = events[eventHead];
+    event.raw = edge;
+    snprintf(event.address, sizeof(event.address), "%s", host.connectedAddr());
+    eventHead = next;
   }
   KeyEvent ignored{};
   while (host.popKey(ignored)) {
-  } // Raw edges carry keyboard fallback identities too.
+  }
 }
 void execute(const PageTurner::Request &r) {
   current.message[0] = 0;
@@ -162,7 +94,8 @@ void execute(const PageTurner::Request &r) {
     Config value = config;
     value.enabled = r.value ? 1 : 0;
     if (save(value)) {
-      cancelLearning();
+      scanRequested = false;
+      nextPeer[0] = connectingPeer[0] = 0;
       retryAt = 0;
       armSelected = value.enabled;
     }
@@ -176,81 +109,54 @@ void execute(const PageTurner::Request &r) {
   case Command::Enable:
     break;
   case Command::Scan:
-    cancelLearning();
+    nextPeer[0] = connectingPeer[0] = 0;
     host.disconnect();
     armSelected = false;
-    // A live link closes asynchronously. Scan may be retried after it closes.
-    if (host.isConnected() || host.isConnecting()) {
-      message("正在断开，请稍后重新搜索");
-      break;
-    }
-    host.startScan(15000);
-    if (!host.isScanning())
-      message("蓝牙正在准备，请稍后重新搜索");
+    scanRequested = true;
+    switchAt = millis();
     break;
   case Command::Connect: {
-    cancelLearning();
+    scanRequested = false;
+    if (!paired(r.address) &&
+        host.pairedCount() >= BleKeyboardHost::kMaxBonds) {
+      message("配对列表已满，请先移除不用的设备");
+      break;
+    }
+    if (host.isConnected() && !strcmp(host.connectedAddr(), r.address))
+      break;
     armSelected = false;
-    if (host.isConnected() || host.isConnecting()) {
-      message("请先断开当前设备");
-      break;
-    }
-    if (!host.connect(r.address)) {
-      message("暂时无法连接，请重试");
-      break;
-    }
-    Config value = config;
-    snprintf(value.selected, sizeof(value.selected), "%s", r.address);
-    if (!save(value))
-      host.disconnect();
+    connectingPeer[0] = 0;
+    switchAt = millis();
+    snprintf(nextPeer, sizeof(nextPeer), "%s", r.address);
+    host.disconnect();
     break;
   }
   case Command::Disconnect:
-    cancelLearning();
+    scanRequested = false;
+    nextPeer[0] = connectingPeer[0] = 0;
     armSelected = false;
     host.disconnect();
     break;
   case Command::Reconnect:
-    cancelLearning();
+    scanRequested = false;
+    nextPeer[0] = connectingPeer[0] = 0;
     host.stopScan();
-    armSelected = true;
+    if (!host.isConnected() || strcmp(host.connectedAddr(), config.selected))
+      host.disconnect();
+    armSelected =
+        !host.isConnected() || strcmp(host.connectedAddr(), config.selected);
     if (!config.selected[0]) {
       armSelected = false;
       message("请先选择一个翻页器");
     }
     break;
   case Command::Forget:
-    cancelLearning();
+    scanRequested = false;
+    nextPeer[0] = connectingPeer[0] = 0;
     host.forget(r.address);
     snprintf(forgetting, sizeof(forgetting), "%s", r.address);
     armSelected = false;
     break;
-  case Command::Learn:
-    if (!host.isConnected() || r.value < 1 || r.value > 3) {
-      message("连接后才能学习按键");
-      break;
-    }
-    learning = r.value;
-    learningSince = millis();
-    candidate = 0;
-    snprintf(learningPeer, sizeof(learningPeer), "%s", host.connectedAddr());
-    message("请按下并松开要使用的按键");
-    break;
-  case Command::CancelLearn:
-    cancelLearning();
-    break;
-  case Command::ClearBindings: {
-    Config value = config;
-    auto *b = binding(value, host.isConnected() ? host.connectedAddr()
-                                                : config.selected);
-    if (b) {
-      for (auto &code : b->codes)
-        code = 0;
-      if (save(value))
-        message("已恢复默认按键");
-    }
-    break;
-  }
   }
 }
 void step() {
@@ -265,13 +171,10 @@ void step() {
     std::lock_guard<std::mutex> lock(mutex);
     sleep = suspended;
     sequence = generation;
-    if (cancelRequested) {
-      cancelLearning();
-      cancelRequested = false;
-    }
   }
   if (sleep) {
-    cancelLearning();
+    scanRequested = false;
+    nextPeer[0] = connectingPeer[0] = 0;
     host.stopScan();
     host.end(0);
     RawButtonEvent raw;
@@ -298,7 +201,8 @@ void step() {
       execute(r);
     }
     if (!config.enabled || host.isStopping()) {
-      cancelLearning();
+      scanRequested = false;
+      nextPeer[0] = connectingPeer[0] = 0;
       host.end(0);
     } else if (!host.isRunning() && int32_t(millis() - retryAt) >= 0) {
       retryAt = millis() + 4000;
@@ -316,15 +220,48 @@ void step() {
         if (!host.armSelectedPeerReconnect(config.selected))
           message("无法重连，请重新选择设备");
       }
-      if (learning &&
-          (!host.isConnected() || millis() - learningSince >= 30000)) {
-        cancelLearning();
-        message("按键学习已结束，请重试");
+      if (scanRequested) {
+        if (!host.isConnected() && !host.isConnecting())
+          host.startScan(15000);
+        if (host.isScanning())
+          scanRequested = false;
+        else if (millis() - switchAt >= 5000) {
+          scanRequested = false;
+          armSelected = true;
+          message("搜索失败，请重试");
+        }
+      }
+      if (nextPeer[0]) {
+        if (!host.isConnected() && !host.isConnecting() &&
+            host.connectOnly(nextPeer)) {
+          memcpy(connectingPeer, nextPeer, sizeof(nextPeer));
+          nextPeer[0] = 0;
+        } else if (millis() - switchAt >= 5000) {
+          nextPeer[0] = 0;
+          armSelected = true;
+          message("暂时无法连接，请重试");
+        }
+      }
+      char error[48];
+      if (host.takeConnectFailure(error, sizeof(error))) {
+        if (connectingPeer[0]) {
+          host.disconnect();
+          connectingPeer[0] = 0;
+          armSelected = true;
+        }
+        message("连接失败，请检查翻页器后重试");
+      }
+      if (connectingPeer[0] && host.isConnected() &&
+          !strcmp(host.connectedAddr(), connectingPeer)) {
+        Config value = config;
+        memcpy(value.selected, connectingPeer, sizeof(value.selected));
+        if (!save(value)) {
+          host.disconnect();
+          armSelected = true;
+        }
+        connectingPeer[0] = 0;
       }
       processInput();
-      char error[48];
-      if (host.takeConnectFailure(error, sizeof(error)))
-        message("连接失败，请检查翻页器的配对模式后重试");
       uint32_t passkey;
       if (host.takePairingPasskey(passkey)) {
         current.hasPasskey = true;
@@ -342,8 +279,6 @@ void step() {
           Config value = config;
           if (!strcmp(value.selected, forgetting))
             value.selected[0] = 0;
-          if (auto *b = binding(value, forgetting))
-            *b = {};
           if (save(value))
             message("已移除设备");
           forgetting[0] = 0;
@@ -356,9 +291,8 @@ void step() {
   current.running = host.isRunning();
   current.stopping = host.isStopping();
   current.connected = host.isConnected();
-  current.connecting = host.isConnecting();
-  current.scanning = host.isScanning();
-  current.learning = learning;
+  current.connecting = host.isConnecting() || nextPeer[0] || connectingPeer[0];
+  current.scanning = host.isScanning() || scanRequested;
   snprintf(current.selected, sizeof(current.selected), "%s", config.selected);
   snprintf(current.connectedAddress, sizeof(current.connectedAddress), "%s",
            host.connectedAddr());
@@ -370,7 +304,6 @@ void step() {
     current.devices[i] = host.device(i);
   for (uint8_t i = 0; i < current.pairedCount; ++i)
     current.paired[i] = host.paired(i);
-  memcpy(current.bindings, config.bindings, sizeof(current.bindings));
   {
     std::lock_guard<std::mutex> lock(mutex);
     published = current;
@@ -392,32 +325,22 @@ bool PageTurner::begin() {
                      &turner::task) == pdPASS;
 }
 bool PageTurner::request(const Request &r) {
-  if (!begin() || r.command > Command::ClearBindings || r.value > 3 ||
+  if (!begin() || r.command > Command::Reconnect ||
+      (r.command == Command::Enable && r.value > 1) ||
       !memchr(r.address, 0, sizeof(r.address)))
     return false;
   std::lock_guard<std::mutex> lock(turner::mutex);
   if (turner::suspended)
     return false;
-  if (r.command == Command::CancelLearn) {
-    turner::cancelRequested = true;
-    Request retained[8]{};
-    unsigned count = 0;
-    while (turner::requestTail != turner::requestHead) {
-      auto item = turner::requests[turner::requestTail];
-      turner::requestTail = uint8_t((turner::requestTail + 1) % 8);
-      if (item.command != Command::Learn)
-        retained[count++] = item;
-    }
-    turner::requestTail = 0;
-    turner::requestHead = count;
-    for (unsigned i = 0; i < count; ++i)
-      turner::requests[i] = retained[i];
-    return true;
-  }
   const auto next = uint8_t((turner::requestHead + 1) % 8);
   if (next == turner::requestTail)
     return false;
-  turner::requests[turner::requestHead] = r;
+  auto &queued = turner::requests[turner::requestHead];
+  queued = r;
+  for (char &c : queued.address) {
+    if (c >= 'A' && c <= 'F')
+      c += 'a' - 'A';
+  }
   turner::requestHead = next;
   return true;
 }
@@ -429,11 +352,16 @@ PageTurner::Snapshot PageTurner::snapshot() {
 }
 bool PageTurner::pop(Event &e) {
   std::lock_guard<std::mutex> lock(turner::mutex);
-  if (turner::eventTail == turner::eventHead)
-    return false;
-  e = turner::events[turner::eventTail];
-  turner::eventTail = uint8_t((turner::eventTail + 1) % 16);
-  return true;
+  while (turner::eventTail != turner::eventHead) {
+    const auto &event = turner::events[turner::eventTail];
+    turner::eventTail = uint8_t((turner::eventTail + 1) % 16);
+    if (!turner::suspended && turner::published.connected &&
+        !strcmp(event.address, turner::published.connectedAddress)) {
+      e = event;
+      return true;
+    }
+  }
+  return false;
 }
 bool PageTurner::suspend() {
   std::lock_guard<std::mutex> lock(turner::mutex);

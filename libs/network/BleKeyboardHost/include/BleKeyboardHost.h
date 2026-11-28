@@ -170,6 +170,7 @@ class BleKeyboardHost {
   // scanning, connecting or connected, or while a plan is already armed.
   // connect(), disconnect(), end(), and forget() of that peer cancel the plan; a
   // link to the peer that later drops on its own starts a fresh one.
+  bool connectOnly(const char* addr); // Never fall back to a different bonded peer.
   bool armSelectedPeerReconnect(const char* addr);
   // Drop the link and pause auto-reconnect until the next connect() or begin().
   void disconnect();

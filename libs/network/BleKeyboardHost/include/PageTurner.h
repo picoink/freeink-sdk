@@ -11,36 +11,27 @@ public:
     Connect,
     Disconnect,
     Forget,
-    Reconnect,
-    Learn,
-    CancelLearn,
-    ClearBindings
+    Reconnect
   };
-  enum class Action : uint8_t { None, Previous, Next, Refresh };
   struct Request {
     Command command{};
     uint8_t value = 0;
     char address[18]{};
   };
-  struct Binding {
-    char address[18]{};
-    uint32_t codes[3]{};
-  };
   struct Snapshot {
     bool supported = false, enabled = false, running = false, stopping = false,
          scanning = false, connected = false, connecting = false;
-    uint8_t learning = 0, deviceCount = 0, pairedCount = 0;
+    uint8_t deviceCount = 0, pairedCount = 0;
     uint32_t passkey = 0;
     bool hasPasskey = false;
     char selected[18]{}, connectedAddress[18]{}, connectedName[32]{},
         message[96]{};
     DiscoveredDevice devices[BleKeyboardHost::kMaxDiscovered]{};
     PairedHidDevice paired[BleKeyboardHost::kMaxBonds]{};
-    Binding bindings[BleKeyboardHost::kMaxBonds]{};
   };
   struct Event {
-    Action action = Action::None;
-    uint32_t timestamp = 0;
+    RawButtonEvent raw{};
+    char address[18]{};
   };
   static PageTurner &instance();
   static bool supported();

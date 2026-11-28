@@ -717,6 +717,7 @@ const DiscoveredDevice& BleKeyboardHost::device(uint8_t) const {
 void BleKeyboardHost::releaseScanResults() {}
 bool BleKeyboardHost::connect(const char*) { return false; }
 bool BleKeyboardHost::armSelectedPeerReconnect(const char*) { return false; }
+bool BleKeyboardHost::connectOnly(const char*) { return false; }
 void BleKeyboardHost::disconnect() {}
 const PairedHidDevice& BleKeyboardHost::paired(uint8_t) const {
   static const PairedHidDevice kEmpty{};
