@@ -12,6 +12,14 @@
 #include <utility>
 
 namespace freeink::memory {
+// Call after boot-critical peripherals have allocated their internal buffers.
+// Ordinary task-side library allocations must leave SRAM for FreeRTOS locks
+// and stacks. Explicit internal/DMA capability allocations are unaffected.
+inline void preferExternalHeap() {
+#if defined(ESP_PLATFORM) && !defined(FREEINK_HOST)
+  if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM)) heap_caps_malloc_extmem_enable(0);
+#endif
+}
 inline void* reallocate(void* pointer, size_t size) {
   if (!size) {
     free(pointer);

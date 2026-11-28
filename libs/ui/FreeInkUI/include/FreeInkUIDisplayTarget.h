@@ -314,6 +314,15 @@ class DisplayTarget final : public DrawTarget {
               const Paint foreground = Paint::solid(Color::Black),
               const Rotation rotation = Rotation::None) override {
     if (!bitmap || rect.empty()) return;
+    if (bitmap.format==BitmapFormat::Mask4) {
+      const Color color=foreground.kind==PaintKind::None ? Color::Black : foreground.color;
+      if (color==Color::Transparent) return;
+      forEachBitmapSample(rect,bitmap,mode,[&](int16_t x,int16_t y,uint8_t coverage) {
+        if (gray8_) plot(x,y,color,coverage*17);
+        else if (coverage==15 || coverage>bayerAt(x,y)) plot(x,y,color);
+      },rotation);
+      return;
+    }
     if (bitmap.format==BitmapFormat::Gray4) {
       if (gray8_ && mode==BitmapMode::Stretch && rotation==Rotation::None) {
         stretchGray<4>(rect,bitmap); return;
@@ -622,7 +631,7 @@ class DisplayTarget final : public DrawTarget {
   int16_t runAdvance(const BitmapFont& f, const uint32_t cp) const {
     if (cp == 0x2026) {  // U+2026 HORIZONTAL ELLIPSIS -> "..."
       const FontGlyph* dot = glyphFor(f, '.');
-      return static_cast<int16_t>(dot ? dot->xAdvance * 3 : 0);
+      if (dot) return static_cast<int16_t>(dot->xAdvance * 3);
     }
     const FontGlyph* g = glyphFor(f, cp);
     if (g) return g->xAdvance;
@@ -680,8 +689,10 @@ class DisplayTarget final : public DrawTarget {
       s += decodeUtf8(s, cp);
       if (cp == 0x2026) {
         const FontGlyph* dot = glyphFor(f, '.');
-        if (dot) for (int i = 0; i < 3; ++i) { drawGlyph(f, *dot, penX, baseline, ink, inkColor); penX += dot->xAdvance; }
-        continue;
+        if (dot) {
+          for (int i = 0; i < 3; ++i) { drawGlyph(f, *dot, penX, baseline, ink, inkColor); penX += dot->xAdvance; }
+          continue;
+        }
       }
       const FontGlyph* g = glyphFor(f, cp);
       if (g) { drawGlyph(f, *g, penX, baseline, ink, inkColor); penX = static_cast<int16_t>(penX + g->xAdvance); }

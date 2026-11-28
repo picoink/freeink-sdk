@@ -58,13 +58,13 @@ void EInkDisplay::begin() {
   clearScreen();
 }
 void EInkDisplay::displayBufferAsync(RefreshMode mode) {
-  publishFrame(buffer_, getDisplayWidth(), getDisplayHeight());
-  busyUntil_ = nowMs() + (mode == FULL_REFRESH ? runtime().displayFullMs : runtime().displayFastMs);
+  publishFrame(buffer_, getDisplayWidth(), getDisplayHeight(),0,calibration_.nativeX(),calibration_.nativeY());
+  busyUntil_ = nowMs() + ((mode == FULL_REFRESH || mode == TEXT_CLEAN_REFRESH) ? runtime().displayFullMs : runtime().displayFastMs);
 }
 bool EInkDisplay::displayGray8BufferAsync(const uint8_t* pixels, uint16_t stride, RefreshMode mode) {
   if (!pixels || stride < getDisplayWidth() || refreshBusy()) return false;
-  publishFrame(pixels, getDisplayWidth(), getDisplayHeight(), stride);
-  busyUntil_ = nowMs() + (mode == FULL_REFRESH ? runtime().displayFullMs : runtime().displayFastMs);
+  publishFrame(pixels, getDisplayWidth(), getDisplayHeight(), stride,calibration_.nativeX(),calibration_.nativeY());
+  busyUntil_ = nowMs() + ((mode == FULL_REFRESH || mode == TEXT_CLEAN_REFRESH) ? runtime().displayFullMs : runtime().displayFastMs);
   return true;
 }
 void EInkDisplay::displayBuffer(RefreshMode mode, bool) {
@@ -264,6 +264,13 @@ bool UsbMassStorage::hostConnected() const {
   return state() == UsbMassStorageState::Connected || state() == UsbMassStorageState::Accessed;
 }
 bool PowerManager::armPowerButtonWakeup(bool) { return !fault("wake"); }
+bool PowerManager::wokeFromSleep() { return bootCause()==BootCause::Sleep; }
+PowerManager::BootCause PowerManager::bootCause() {
+  const auto reason=int(deviceNumber("reset_reason",deviceBool("wake_from_sleep",false)?8:1));
+  if(reason==8)return BootCause::Sleep;
+  if(reason==1 || reason==9 || reason==14)return BootCause::PowerRecovery;
+  return BootCause::Reset;
+}
 void PowerManager::powerDownRailsForSleep() {}
 PowerManager::AbortedSleepInfo PowerManager::takeAbortedSleepInfo() { return {}; }
 void PowerManager::waitForPowerButtonRelease() {}

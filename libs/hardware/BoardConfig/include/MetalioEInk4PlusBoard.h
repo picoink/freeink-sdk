@@ -202,12 +202,22 @@ inline void vibrate(uint16_t durationMs = 50) {
   setOutput(PIN_MOTOR, false);
 }
 
-// Touch controller reset through P1.2 (vendor: low >= 5 ms, then >= 300 ms).
-inline void resetTouch() {
-  if (!setOutput(PIN_TOUCH_RESET, false)) return;
+// Start the vendor reset before independent boot work, then finish it before
+// probing touch. Preserve the complete low >=5 ms and high >=300 ms intervals.
+struct TouchResetState {uint32_t releasedAt=0;bool pending=false;};
+inline TouchResetState& touchResetState(){static TouchResetState state;return state;}
+inline bool prepareTouchReset() {
+  auto& state=touchResetState();if(state.pending)return true;
+  if(!setOutput(PIN_TOUCH_RESET,false))return false;
   delay(10);
-  setOutput(PIN_TOUCH_RESET, true);
-  delay(300);
+  if(!setOutput(PIN_TOUCH_RESET,true))return false;
+  state.releasedAt=uint32_t(millis());state.pending=true;return true;
+}
+inline void resetTouch() {
+  if(!prepareTouchReset())return;
+  auto& state=touchResetState();const uint32_t elapsed=uint32_t(millis())-state.releasedAt;
+  if(elapsed<300)delay(300-elapsed);
+  state.pending=false;
 }
 
 inline bool powerKeyPressed() { return !(readInputs() & (1u << PIN_POWER_KEY)); }

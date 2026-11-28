@@ -47,3 +47,9 @@ file from Bosch Sensortec's BMI270_SensorAPI
 BSD-3-Clause license reproduced in that file:
 
     Copyright (c) 2023 Bosch Sensortec GmbH. All rights reserved.
+
+-----------------------------------------------------------------------------
+
+DisplayCalibration's four-direction semantics and PicoInk's associated settings
+workflow reference CloudZao/Metalio-E-INK4-Plus (MIT). Attribution and license:
+docs/licenses/metalio-display-calibration.txt.

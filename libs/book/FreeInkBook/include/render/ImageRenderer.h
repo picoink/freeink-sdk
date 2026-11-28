@@ -30,11 +30,11 @@ namespace book {
 // (0 = black, 255 = white) and is valid only during the call.
 using ImageRowFn = bool (*)(void* user, uint16_t y, const uint8_t* gray, uint16_t width);
 
-// Optional synchronous backend. Declined may fall back; Stopped must never
-// restart decoding. All row pointers are borrowed for the callback only.
+// Optional synchronous backend. Only Declined may fall back; resource failure
+// and cancellation must not silently select a lower-quality decoder.
 class ImageBackend {
  public:
-  enum class Result { Declined, Complete, Stopped };
+  enum class Result { Declined, Complete, Stopped, OutOfMemory };
   virtual ~ImageBackend() = default;
   virtual Result render(BookSource&,const ZipEntry&,const PageImage&,Arena&,ImageRowFn,void*)=0;
 };

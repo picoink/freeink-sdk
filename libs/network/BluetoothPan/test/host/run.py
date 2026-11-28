@@ -25,8 +25,8 @@ with tempfile.TemporaryDirectory(prefix="freeink-pan-") as tmp:
                     "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=30)
     stubs = Path(tmp) / "stubs"
-    names = ["sdkconfig.h", "soc/soc_caps.h", "Arduino.h", "Network.h", "Preferences.h",
-             "esp32-hal-bt.h", "esp32-hal-alloc-bt-classic-mem.h", "esp_bt_main.h", "esp_bt_device.h",
+    names = ["sdkconfig.h", "soc/soc_caps.h", "Arduino.h", "esp_event.h", "Preferences.h",
+             "esp32-hal-bt.h", "esp_bt.h", "esp32-hal-alloc-bt-classic-mem.h", "esp_bt_main.h", "esp_bt_device.h",
              "esp_gap_bt_api.h", "esp_pan_api.h", "esp_netif.h", "esp_netif_defaults.h",
              "freertos/FreeRTOS.h", "freertos/task.h", "freertos/queue.h"]
     for name in names:
@@ -38,6 +38,15 @@ with tempfile.TemporaryDirectory(prefix="freeink-pan-") as tmp:
                     "-DFREEINK_CAP_BLUETOOTH_PAN=1", "-DARDUINO_ARCH_ESP32=1",
                     "-fsanitize=" + os.environ.get("SANITIZERS", "undefined"), "-fno-omit-frame-pointer",
                     "-I", str(stubs), "-I", str(here.parents[1] / "include"),
+                    "-I", str(here.parents[2] / "BluetoothHost/include"),
+                    str(here.parents[2] / "BluetoothHost/src/BluetoothHost.cpp"),
                     str(here / "lifecycle.cpp"), "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True, timeout=30)
+    exe = Path(tmp) / "leases"
+    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++17", "-Wall", "-Wextra", "-Werror",
+                    "-DARDUINO_ARCH_ESP32=1", "-I", str(stubs),
+                    "-I", str(here.parents[2] / "BluetoothHost/include"),
+                    str(here.parents[2] / "BluetoothHost/src/BluetoothHost.cpp"),
+                    str(here.parents[2] / "BluetoothHost/test/host/leases.cpp"), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True, timeout=30)
 print("Bluetooth PAN capability, framing, retry, lifecycle and bounded RX tests passed")

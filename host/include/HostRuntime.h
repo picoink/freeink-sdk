@@ -72,7 +72,7 @@ void beginFrame();
 void textDrawn(int x, int y, int w, int h, const char* text);
 void commitHitRegions();
 void hitPublished(int x, int y, int w, int h, int action, int value, int state);
-void publishFrame(const uint8_t* bits, int width, int height, int grayStride = 0);
+void publishFrame(const uint8_t* bits, int width, int height, int grayStride = 0,int dx=0,int dy=0);
 Frame snapshot();
 Json frameInfo(const Frame& f);
 bool fault(const char* name);

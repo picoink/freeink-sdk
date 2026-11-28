@@ -49,6 +49,14 @@ def export_libraries(core, output):
     packages = core / "packages"
     source = packages / "framework-arduinoespressif32-libs"
     idf = packages / "framework-espidf"
+    # An export-only run must not label old archives with the new patch hash.
+    nm = packages / "toolchain-riscv32-esp/bin/riscv32-esp-elf-nm"
+    symbols = subprocess.check_output([str(nm), "-A", str(source / "esp32s31/lib/libmbedtls.a")],text=True)
+    bundle = [line for line in symbols.splitlines() if ":esp_crt_bundle.c.o:" in line]
+    if (not all(any(line.endswith(" U " + name) for line in bundle)
+                for name in ("mbedtls_calloc", "mbedtls_free")) or
+            any(line.endswith(" U calloc") for line in bundle)):
+        raise RuntimeError("Certificate bundle allocator patch is absent from compiled libraries")
     # Export to a staging directory: an interrupted build cannot replace a good package.
     stage = output.with_name(output.name + ".building")
     if stage.exists():
@@ -59,24 +67,43 @@ def export_libraries(core, output):
     header = "bt/host/bluedroid/api/include/api"
     shutil.copytree(idf / "components" / header, chip / "include" / header, dirs_exist_ok=True)
     controller = idf / "components/bt/controller/lib_esp32s31/esp32s31-bt-lib"
-    for archive in ("libbredr_app.a", "libbtdm_common.a"):
+    for archive in ("libbredr_app.a", "libble_app.a", "libbtdm_common.a"):
         shutil.copy2(controller / archive, chip / "lib" / archive)
     script = chip / "pioarduino-build.py"
-    text = script.read_text().replace('"-lble_app"', '"-lbredr_app"')
+    text = script.read_text()
+    # The hybrid exporter may already contain the Classic archive. Retain both
+    # controller halves for BTDM; never convert BLE linkage into Classic-only.
+    if '"-lbredr_app"' not in text:
+        text = text.replace('"-lble_app"', '"-lble_app", "-lbredr_app"')
+    if '"-lble_app"' not in text:
+        text = text.replace('"-lbredr_app"', '"-lbredr_app", "-lble_app"')
     text = text.replace('        "-Wl,--wrap=log_printf",\n', '')
     text += '\n# Export the enabled Classic Bluetooth public API.\n'
     text += f'env.AppendUnique(CPPPATH=[join(FRAMEWORK_SDK_DIR, "esp32s31", "include", "{header}")])\n'
     script.write_text(text)
     config = (chip / "qio_opi/include/sdkconfig.h").read_text()
-    for symbol in ("BT_BLUEDROID_ENABLED", "BT_CLASSIC_ENABLED", "BT_PAN_ENABLED", "TINYUSB_MSC_ENABLED"):
+    for symbol in ("BT_BLUEDROID_ENABLED", "BT_CLASSIC_ENABLED", "BT_PAN_ENABLED", "BT_BLE_ENABLED", "BTDM_CTRL_MODE_BTDM", "BT_GATTC_ENABLE", "TINYUSB_MSC_ENABLED"):
         if f"#define CONFIG_{symbol} 1" not in config:
             raise RuntimeError(f"Missing CONFIG_{symbol}; refusing to export incomplete libraries")
+    for symbol in ("TINYUSB_HOST_ENABLED", "TINYUSB_HID_ENABLED", "TINYUSB_MIDI_ENABLED",
+                   "TINYUSB_AUDIO_ENABLED", "TINYUSB_VIDEO_ENABLED", "TINYUSB_DFU_ENABLED",
+                   "TINYUSB_DFU_RT_ENABLED", "TINYUSB_VENDOR_ENABLED", "TINYUSB_NCM_ENABLED",
+                   "BT_CTRL_ALLOW_MALLOC_FROM_SPIRAM"):
+        if f"#define CONFIG_{symbol} 1" in config:
+            raise RuntimeError(f"Unexpected CONFIG_{symbol}; resource profile does not match")
+    for symbol, value in {"BT_LE_MAX_CONNECTIONS": 1, "BT_CTRL_BR_EDR_MAX_ACL_CONN": 1,
+                          "TINYUSB_CDC_MAX_PORTS": 1, "BT_LE_MSYS_1_BLOCK_COUNT": 6,
+                          "BT_LE_MSYS_2_BLOCK_COUNT": 12, "BT_LE_ACL_BUF_COUNT": 8,
+                          "BT_LE_HCI_EVT_HI_BUF_COUNT": 12, "BT_LE_HCI_EVT_LO_BUF_COUNT": 4}.items():
+        if f"#define CONFIG_{symbol} {value}\n" not in config:
+            raise RuntimeError(f"Unexpected CONFIG_{symbol}; resource profile does not match")
     metadata = json.loads((stage / "package.json").read_text())
-    metadata["version"] = "6.1.0+freeink.pan.2"
+    metadata["version"] = "6.1.0+freeink.pan.hid.3"
     (stage / "package.json").write_text(json.dumps(metadata, indent=2) + "\n")
     (stage / "freeink-pan.json").write_text(json.dumps({
         "idf_base": IDF_COMMIT, "pan_source": "ad20ded62a2d67a26e501fdc1905f43ba7ad6c81",
         "patch_sha256": hashlib.sha256((HERE / "esp-idf-pan.patch").read_bytes()).hexdigest(),
+        "tls_allocator_patch_sha256": hashlib.sha256((HERE / "esp-idf-tls-allocator.patch").read_bytes()).hexdigest(),
         "config_sha256": hashlib.sha256((HERE / "pan.sdkconfig").read_bytes()).hexdigest(),
         "submodules_sha256": hashlib.sha256((HERE / "submodules.json").read_bytes()).hexdigest(),
     }, indent=2) + "\n")
@@ -132,18 +159,45 @@ def main():
             "components/esp_wifi/lib", "components/esp_phy/lib", "components/esp_coex/lib") else (lambda path: True)
         hydrate(idf / item["path"], cache / "submodules" / item["path"].replace("/", "_"),
                 item["repository"], item["sha"], include)
-    patch = HERE / "esp-idf-pan.patch"
+    patches = [HERE / "esp-idf-pan.patch", HERE / "esp-idf-tls-allocator.patch"]
     # Check both directions so rerunning with the same input is harmless. Fail
     # on a different baseline instead of silently producing a mixed framework.
     patch_env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(idf.parent))
-    check = subprocess.run(["git", "apply", "--check", str(patch)], cwd=idf, env=patch_env, capture_output=True)
-    if check.returncode == 0:
-        run(["git", "apply", str(patch)], cwd=idf, env=patch_env)
-    else:
-        run(["git", "apply", "--reverse", "--check", str(patch)], cwd=idf, env=patch_env)
+    for patch in patches:
+        check = subprocess.run(["git", "apply", "--check", str(patch)], cwd=idf, env=patch_env, capture_output=True)
+        if check.returncode == 0:
+            run(["git", "apply", str(patch)], cwd=idf, env=patch_env)
+        else:
+            run(["git", "apply", "--reverse", "--check", str(patch)], cwd=idf, env=patch_env)
+    run([sys.executable, HERE / "test_tls_allocator.py", "--idf", idf])
     component = work / "components/arduino_tinyusb"
     for filename in ("CMakeLists.txt", "Kconfig.projbuild", "include/tusb_config.h"):
         download(f"https://raw.githubusercontent.com/espressif/esp32-arduino-lib-builder/{BUILDER}/components/arduino_tinyusb/{filename}", component / filename)
+    # The upstream builder enables the entire USB host stack whenever device
+    # mode is enabled. Give the product an explicit, reproducible host opt-in.
+    kconfig = component / "Kconfig.projbuild"
+    configuration = kconfig.read_text()
+    if "config TINYUSB_HOST_ENABLED" not in configuration:
+        configuration = configuration.replace('    menu "Serial (CDC) driver"',
+            '    config TINYUSB_HOST_ENABLED\n'
+            '        bool "Enable TinyUSB host stack"\n'
+            '        default n\n'
+            '        depends on TINYUSB_ENABLED\n\n'
+            '    menu "Serial (CDC) driver"')
+        kconfig.write_text(configuration)
+    header = component / "include/tusb_config.h"
+    configuration = header.read_text().replace(
+        '#define CFG_TUH_ENABLED             CFG_TUD_ENABLED',
+        '#ifdef CONFIG_TINYUSB_HOST_ENABLED\n'
+        '#define CFG_TUH_ENABLED             CONFIG_TINYUSB_HOST_ENABLED\n'
+        '#else\n#define CFG_TUH_ENABLED             0\n#endif')
+    if 'FreeInk device-only host classes' not in configuration:
+        configuration += '\n// FreeInk device-only host classes (also used by Arduino wrappers).\n'
+        configuration += '#if !CFG_TUH_ENABLED\n'
+        for name in ('HUB', 'CDC', 'CDC_FTDI', 'CDC_CP210X', 'CDC_CH34X', 'HID', 'MSC', 'MIDI'):
+            configuration += f'#undef CFG_TUH_{name}\n#define CFG_TUH_{name} 0\n'
+        configuration += '#endif\n'
+    header.write_text(configuration)
     tinyusb = cache / "tinyusb.tar.gz"
     if not (component / "tinyusb/src/tusb.c").exists():
         download(f"https://api.github.com/repos/hathach/tinyusb/tarball/{TINYUSB}", tinyusb)
@@ -159,7 +213,7 @@ def main():
     lock = HERE / "dependencies.lock"
     if lock.exists():
         shutil.copy2(lock, work / "dependencies.lock")
-    patch_hash = hashlib.sha256(patch.read_bytes()).hexdigest()
+    patch_hash = hashlib.sha256(b''.join(p.read_bytes() for p in patches)).hexdigest()
     (work / "pan.sdkconfig").write_text(f"# FreeInk IDF {IDF_COMMIT} PAN {patch_hash}\n" + (HERE / "pan.sdkconfig").read_text())
     (work / "platformio.ini").write_text(f"""[env:pan]
 platform = {PLATFORM}

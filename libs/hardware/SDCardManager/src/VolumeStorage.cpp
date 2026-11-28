@@ -2,12 +2,14 @@
 #include <SDCardManager.h>
 #include <cstring>
 #include <utility>
+#include <ResourceCoordinator.h>
 #ifndef FREEINK_HOST
 #include <sys/stat.h>
 #include <dirent.h>
 #include <cerrno>
 #include <unistd.h>
 #include <fcntl.h>
+#include "InternalFile.h"
 #endif
 #ifdef FREEINK_HOST
 #include <LittleFS.h>
@@ -18,7 +20,18 @@
 #endif
 
 namespace freeink {
-namespace { using Lock = std::lock_guard<std::recursive_mutex>; StorageIoStats io[2]; }
+namespace {
+using Lock = std::lock_guard<std::recursive_mutex>; StorageIoStats io[2];
+bool readAllowed(StorageVolume v){return !resources::Coordinator::readOnlyTask() || v==StorageVolume::Tf;}
+bool writeAllowed(){return !resources::Coordinator::readOnlyTask();}
+}
+bool VolumeStorage::parallelReadSafe() {
+#if FREEINK_HOST || (FREEINK_MCU_S31 && FREEINK_SD_SDMMC)
+  return true;
+#else
+  return false;
+#endif
+}
 StorageIoStats storageIoStats(StorageVolume v){Lock lock(storageMutex());return io[unsigned(v)];}
 void storageCacheHit(StorageVolume v){Lock lock(storageMutex());++io[unsigned(v)].cacheHits;}
 std::recursive_mutex& storageMutex() { static std::recursive_mutex mutex; return mutex; }
@@ -28,6 +41,7 @@ bool VolumeStorage::begin() {
 }
 bool VolumeStorage::mount(StorageVolume volume) {
   Lock lock(storageMutex());
+  if(!writeAllowed())return false;
   if (reserved_[unsigned(volume)] || users_[unsigned(volume)]) return false;
   if (volume == StorageVolume::Tf) return SdMan.begin();
 #ifdef INTERNAL_FS
@@ -65,24 +79,21 @@ StoragePath VolumeStorage::resolve(const char* name) const {
 StorageFile VolumeStorage::open(const char* name, oflag_t flags) {
   Lock lock(storageMutex()); StorageFile file;
   auto p = resolve(name); if (!p.valid || !ready(p.volume)) return file;
+  if(!readAllowed(p.volume) || (!writeAllowed() && (flags&(O_ACCMODE|O_CREAT|O_TRUNC|O_APPEND))))return file;
   if (p.volume == StorageVolume::Tf) file.sd_ = SdMan.open(p.path.c_str(), flags);
 #ifdef INTERNAL_FS
   else {
+#ifdef FREEINK_HOST
     const bool exists = INTERNAL_FS.exists(p.path.c_str());
     if ((!exists && !(flags & O_CREAT)) || (exists && (flags & O_EXCL) && (flags & O_CREAT))) return file;
     const bool write = (flags & O_ACCMODE) != O_RDONLY;
     const char* mode = !write ? "r" : (flags & O_APPEND) ? "a+" :
       ((flags & O_TRUNC) || !exists) ? "w+" : "r+";
     file.flash_ = INTERNAL_FS.open(p.path.c_str(), mode);
-#ifndef FREEINK_HOST
-    // Arduino File::flush hides errors. Regular internal files use an fd so
-    // sync/truncate can report the actual filesystem result to callers.
-    if(file.flash_ && file.flash_.isDirectory()) {file.flash_.close();file.directory_=opendir(("/internal"+p.path).c_str());}
-    else if (file.flash_) {
-      file.flash_.close();
-      int access = !write ? 0 : 2; // POSIX O_RDONLY / O_RDWR
-      file.descriptor_ = ::open(("/internal" + p.path).c_str(), access);
-    }
+#else
+    auto handle = detail::openInternal(("/internal" + p.path).c_str(), flags);
+    file.descriptor_ = handle.descriptor;
+    file.directory_ = handle.directory;
 #endif
     file.path_ = p.path;
   }
@@ -91,14 +102,20 @@ StorageFile VolumeStorage::open(const char* name, oflag_t flags) {
 }
 bool VolumeStorage::exists(const char* name) {
   Lock lock(storageMutex()); auto p = resolve(name); if (!p.valid || !ready(p.volume)) return false;
+  if(!readAllowed(p.volume))return false;
   if (p.volume == StorageVolume::Tf) return SdMan.exists(p.path.c_str());
 #ifdef INTERNAL_FS
+#ifdef FREEINK_HOST
   return INTERNAL_FS.exists(p.path.c_str());
+#else
+  return detail::internalExists(("/internal" + p.path).c_str());
+#endif
 #else
   return false;
 #endif
 }
 bool VolumeStorage::remove(const char* name) {
+  if(!writeAllowed())return false;
   Lock lock(storageMutex()); auto p = resolve(name); if (!p.valid || !ready(p.volume) || p.path == "/") return false;
   if (p.volume == StorageVolume::Tf) return SdMan.remove(p.path.c_str());
 #ifdef INTERNAL_FS
@@ -108,6 +125,7 @@ bool VolumeStorage::remove(const char* name) {
 #endif
 }
 bool VolumeStorage::rename(const char* from, const char* to) {
+  if(!writeAllowed())return false;
   Lock lock(storageMutex()); auto a = resolve(from), b = resolve(to);
   if (!a.valid || !b.valid || a.volume != b.volume || !ready(a.volume) || a.path == "/" || b.path == "/") return false;
   if (a.volume == StorageVolume::Tf) return SdMan.rename(a.path.c_str(), b.path.c_str());
@@ -118,13 +136,14 @@ bool VolumeStorage::rename(const char* from, const char* to) {
 #endif
 }
 bool VolumeStorage::ensureDirectoryExists(const char* name) {
+  if(!writeAllowed())return false;
   Lock lock(storageMutex()); auto p = resolve(name); if (!p.valid || !ready(p.volume)) return false;
   if (p.volume == StorageVolume::Tf) return SdMan.ensureDirectoryExists(p.path.c_str());
 #ifdef INTERNAL_FS
   for (size_t end = 1; end <= p.path.size(); ++end) {
     if (end != p.path.size() && p.path[end] != '/') continue;
     auto part = p.path.substr(0, end);
-    if (!INTERNAL_FS.exists(part.c_str()) && !INTERNAL_FS.mkdir(part.c_str())) return false;
+    if (!exists(("/internal" + part).c_str()) && !INTERNAL_FS.mkdir(part.c_str())) return false;
   }
   return true;
 #else
@@ -135,6 +154,7 @@ uint32_t VolumeStorage::openFiles(StorageVolume volume) const { Lock lock(storag
 bool VolumeStorage::reserved(StorageVolume volume) const { Lock lock(storageMutex()); return reserved_[unsigned(volume)]; }
 bool VolumeStorage::reserve(StorageVolume volume) {
   Lock lock(storageMutex());
+  if(!writeAllowed())return false;
   if (!ready(volume) || users_[unsigned(volume)]) return false;
   reserved_[unsigned(volume)] = true;
 #ifdef INTERNAL_FS
@@ -142,14 +162,14 @@ bool VolumeStorage::reserve(StorageVolume volume) {
 #endif
   return true;
 }
-void VolumeStorage::release(StorageVolume volume) { Lock lock(storageMutex()); reserved_[unsigned(volume)] = false; }
+void VolumeStorage::release(StorageVolume volume) { Lock lock(storageMutex()); if(writeAllowed())reserved_[unsigned(volume)] = false; }
 void StorageFile::adopt(StorageVolume volume, oflag_t flags) {
   volume_ = volume; flags_ = flags;
   counted_ = volume == StorageVolume::Tf ? bool(sd_) : (bool(flash_) || descriptor_ >= 0 || directory_);
   if (counted_) {++VolumeStorage::instance().users_[unsigned(volume_)];++io[unsigned(volume_)].opens;}
 }
 bool StorageFile::valid() const {
-  return counted_ && VolumeStorage::instance().ready(volume_) &&
+  return counted_ && readAllowed(volume_) && (writeAllowed() || (flags_&O_ACCMODE)==O_RDONLY) && VolumeStorage::instance().ready(volume_) &&
     (volume_ == StorageVolume::Tf ? bool(sd_) : (bool(flash_) || descriptor_ >= 0 || directory_));
 }
 StorageFile::StorageFile(StorageFile&& other) { *this = std::move(other); }
@@ -167,6 +187,7 @@ bool StorageFile::isDirectory() const { Lock lock(storageMutex()); return valid(
 void StorageFile::close() {
   Lock lock(storageMutex());
   if (!counted_) return;
+  if(!readAllowed(volume_) || (!writeAllowed() && (flags_&O_ACCMODE)!=O_RDONLY))return;
   if (volume_ == StorageVolume::Tf) sd_.close(); else flash_.close();
 #ifndef FREEINK_HOST
   if (descriptor_ >= 0) ::close(descriptor_);
@@ -187,6 +208,7 @@ int StorageFile::read(void* data, size_t length) {
 }
 int StorageFile::read() { uint8_t b; return read(&b,1) == 1 ? b : -1; }
 size_t StorageFile::write(const void* data, size_t length) {
+  if(!writeAllowed())return 0;
   Lock lock(storageMutex()); if (!valid() || !data || (flags_ & O_ACCMODE) == O_RDONLY) return 0;
   #ifndef FREEINK_HOST
   if (descriptor_ >= 0) { if (flags_ & O_APPEND) lseek(descriptor_,0,SEEK_END); auto n=::write(descriptor_,data,length); return n>0 ? n : 0; }
@@ -199,6 +221,18 @@ bool StorageFile::seekSet(uint64_t position) {
   if (descriptor_ >= 0) return position <= INT32_MAX && lseek(descriptor_,position,SEEK_SET)>=0;
   #endif
   return volume_ == StorageVolume::Tf ? sd_.seekSet(position) : position <= UINT32_MAX && flash_.seek(uint32_t(position));
+}
+bool StorageFile::optimizeReadSeeks() {
+  Lock lock(storageMutex());
+  if(!valid() || volume_!=StorageVolume::Tf || (flags_&O_ACCMODE)!=O_RDONLY ||
+      sd_.isDirectory() || sd_.fileSize()>64*1024*1024)return false;
+#ifdef FREEINK_HOST
+  return false; // POSIX seeks already have constant cost; no FAT chain exists.
+#else
+  // The driver verifies every cluster and only then sets its contiguous flag.
+  // Fragmented files keep the normal checked seek path; no file is rewritten.
+  return sd_.contiguousRange(nullptr,nullptr);
+#endif
 }
 uint64_t StorageFile::curPosition() const {
   Lock lock(storageMutex()); if (!valid()) return 0;
@@ -216,6 +250,7 @@ uint64_t StorageFile::fileSize() const {
 }
 bool StorageFile::sync() {
   Lock lock(storageMutex()); if (!valid()) return false;
+  if(!writeAllowed())return (flags_&O_ACCMODE)==O_RDONLY;
   if (volume_ == StorageVolume::Tf) return sd_.sync();
 #ifdef FREEINK_HOST
   return flash_.sync();
@@ -224,6 +259,7 @@ bool StorageFile::sync() {
 #endif
 }
 bool StorageFile::truncate(uint64_t size) {
+  if(!writeAllowed())return false;
   Lock lock(storageMutex()); if (!valid() || (flags_ & O_ACCMODE) == O_RDONLY) return false;
   if (volume_ == StorageVolume::Tf) return sd_.truncate(size);
 #ifdef FREEINK_HOST

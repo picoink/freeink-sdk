@@ -23,6 +23,7 @@ inline ThemeTokens readerTheme() {
   theme.button = outlinedButtonStyles(14,Color::LightGray);
   theme.button.normal.background = Paint::solid(Color::White);
   theme.button.normal.borderWidth = 1;
+  theme.button.disabled.radius = theme.button.normal.radius;
   theme.listRow = selectedPlainListRowStyles();
   theme.listRow.selected.background = Paint::solid(Color::LightGray);
   theme.listRow.active = theme.listRow.selected;

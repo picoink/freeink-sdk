@@ -14,6 +14,11 @@ int main() {
   BoardConfig::holdPowerRails();
   assert(ready() && Wire.ends == 2 && millis() - started == 180);
   const auto boot = outputLatch();
+  auto at=millis();assert(prepareTouchReset());assert(millis()-at==10);
+  delay(120);assert(prepareTouchReset());resetTouch();assert(millis()-at==310);
+  at=millis();assert(prepareTouchReset());delay(400);resetTouch();assert(millis()-at==410);
+  at=millis();resetTouch();assert(millis()-at==310);
+  Wire.failExpander=true;assert(!prepareTouchReset() && !touchResetState().pending);Wire.failExpander=false;
   Wire.failExpander = true;
   assert(!setOutput(PIN_MOTOR, true) && outputLatch() == boot);
   Wire.failExpander = false;

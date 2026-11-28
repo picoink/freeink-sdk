@@ -22,10 +22,10 @@ static_assert(Pan::supported(),
               "Bluetooth PAN enabled but Classic/Bluedroid/PAN is missing; "
               "build the FreeInk PAN libraries");
 #include <Arduino.h>
-#include <Network.h>
+#include <esp_event.h>
 #include <Preferences.h>
 #include <esp32-hal-alloc-bt-classic-mem.h>
-#include <esp32-hal-bt.h>
+#include <BluetoothHost.h>
 #include <esp_bt_device.h>
 #include <esp_bt_main.h>
 #include <esp_gap_bt_api.h>
@@ -524,9 +524,12 @@ void handle(const Event& e) {
   }
 }
 bool initialize() {
-  if (!Network.begin() || !btStartMode(BT_MODE_CLASSIC_BT)) return false;
-  if (esp_bluedroid_init() != ESP_OK || esp_bluedroid_enable() != ESP_OK)
-    return false;
+  // PAN dispatches IDF events directly. Arduino's second event queue and task
+  // are unused here and consume internal SRAM needed during BTDM startup.
+  if (esp_netif_init() != ESP_OK) return false;
+  const auto events = esp_event_loop_create_default();
+  if (events != ESP_OK && events != ESP_ERR_INVALID_STATE) return false;
+  if (!freeink::BluetoothHost::acquire(freeink::BluetoothHost::Profile::Pan)) return false;
   esp_bt_io_cap_t io = ESP_BT_IO_CAP_IO;
   if (esp_bt_gap_set_security_param(ESP_BT_SP_IOCAP_MODE, &io, sizeof(io)) !=
           ESP_OK ||
@@ -569,11 +572,7 @@ bool cleanup() {
     esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_ETH_LOST_IP,
                                           context.lostIp);
   context.gotIp = context.lostIp = nullptr;
-  if ((esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED &&
-       esp_bluedroid_disable() != ESP_OK) ||
-      (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_INITIALIZED &&
-       esp_bluedroid_deinit() != ESP_OK) ||
-      !btStop()) {
+  if (!freeink::BluetoothHost::release(freeink::BluetoothHost::Profile::Pan)) {
     context.state(Pan::State::Stopping, "Bluetooth cleanup failed; retrying");
     return false;  // Never advertise a stopped radio while the controller is
                    // active.

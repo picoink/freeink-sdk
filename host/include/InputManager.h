@@ -1,5 +1,6 @@
 #pragma once
 #include <OrderedInput.h>
+#include <TouchGesture.h>
 #include <array>
 #include <deque>
 #include <mutex>
@@ -21,6 +22,7 @@ class InputManager {
   };
   enum class HostSource : uint8_t { Desktop, Protocol, Count };
   static constexpr unsigned long HOME_KEY_LONG_PRESS_MS = 700;
+  void prepareBoot() {}
   void begin() {}
   bool beginAsync(unsigned = 2, unsigned = 10, uint8_t capacity = 32, bool ordered = false);
   void setHomeLongPressMs(uint32_t ms) { if (!running_) homeLongPressMs_ = ms ? ms : 1; }
@@ -49,9 +51,12 @@ class InputManager {
   void hostHome(bool held);
   void hostTouch(bool held) { touchHeld_ = held; }
   void hostTap(float x, float y);
-  void hostSwipe(float x, float y, float x1, float y1);
+  void hostContact(float x,float y,uint32_t ms,bool down);
 
  private:
+  freeink::TouchGesture gesture_;
+  float gestureX_=0,gestureY_=0;
+  void hostSwipe(float x, float y, float x1, float y1);
   mutable std::mutex mutex_;
   std::deque<freeink::OrderedInput> events_;
   void publishEventLocked(freeink::OrderedInput);

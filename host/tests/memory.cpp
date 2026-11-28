@@ -95,6 +95,8 @@ int main() {
   firmwareAllocations = false;
   auto stats = resourceStats();
   assert(num(field(stats, "failures")) >= 4);
+  assert(parseJson(R"({"memory":{"ram_bytes":4096,"psram_bytes":8388608}})", config).empty());
+  configureResources(config);
   assert(parseJson(R"({"cpu":{"slowdown":3}})", config).empty());
   configureResources(config);
   firmwareAllocations = true;

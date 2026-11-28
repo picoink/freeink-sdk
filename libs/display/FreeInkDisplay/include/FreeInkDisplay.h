@@ -19,6 +19,7 @@
 #include "../src/bus/EpdBus.h"
 #include "GrayscaleCapabilities.h"
 #include "RefreshMetrics.h"
+#include "DisplayCalibration.h"
 
 namespace freeink {
 
@@ -32,7 +33,7 @@ class FreeInkDisplay {
   ~FreeInkDisplay() = default;
 
   // Refresh modes (public contract — full / balanced-half / fast).
-  enum RefreshMode { FULL_REFRESH, HALF_REFRESH, FAST_REFRESH };
+  enum RefreshMode { FULL_REFRESH, HALF_REFRESH, FAST_REFRESH, TEXT_REFRESH, TEXT16_REFRESH, TEXT_STATUS_REFRESH, TEXT_CLEAN_REFRESH };
 
   // Select panel geometry/controller before begin().
   void setDisplayX3();
@@ -189,6 +190,9 @@ class FreeInkDisplay {
   bool lastRefreshSucceeded() const;
   RefreshMetrics lastRefreshMetrics() const;
   bool supportsGray8() const;
+  bool supportsCalibration() const;
+  // Call only between presentations; false means unsupported, busy or invalid.
+  bool setCalibration(const DisplayCalibration&);
   bool displayGray8BufferAsync(const uint8_t*, uint16_t stride, RefreshMode mode = FAST_REFRESH);
   // Block until a pending refresh completes (no-op when none is): the async
   // window drains via the ISR edge wait (finishDisplayAsync), a trigger/complete

@@ -3,6 +3,7 @@
 #include <render/ImageRowScaler.h>
 #include <epub/ImageProbe.h>
 #include <ApplicationMemory.h>
+#include <ResourceMemory.h>
 #include <algorithm>
 #include <memory>
 #if defined(CONFIG_IDF_TARGET_ESP32S31) && !defined(FREEINK_HOST)
@@ -11,6 +12,7 @@
 #include <driver/jpeg_encode.h>
 #include <driver/ppa.h>
 #include <esp_cache.h>
+#include <esp_private/esp_cache_private.h>
 #include <esp_log.h>
 #endif
 #ifdef FREEINK_HOST
@@ -18,7 +20,7 @@ extern "C" bool freeink_host_encode_gray(const uint8_t*,uint16_t,uint16_t,unsign
 #endif
 namespace freeink {
 namespace {
-using Buffer=std::unique_ptr<uint8_t,decltype(&free)>;
+using Buffer=std::unique_ptr<uint8_t,decltype(&resources::releaseAligned)>;
 constexpr auto caps=MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT;
 constexpr size_t reserve=2*1024*1024;
 bool room(size_t bytes,size_t largest,size_t budget) {
@@ -41,6 +43,13 @@ struct ProgressiveContext {
   }
 };
 #if FREEINK_S31_IMAGE
+uint8_t* dmaBuffer(size_t bytes,size_t& capacity) {
+  size_t alignment=64;esp_cache_get_alignment(MALLOC_CAP_SPIRAM,&alignment);alignment=std::max<size_t>(64,alignment);
+  if(bytes>SIZE_MAX-alignment)return nullptr;
+  capacity=(bytes+alignment-1)&~(alignment-1);
+  auto* memory=static_cast<uint8_t*>(resources::allocateAligned(capacity,alignment,resources::Category::Transient,resources::currentOwner,resources::Lifetime::Operation));
+  if(memory)memset(memory,0,capacity);return memory;
+}
 // Standard baseline sampling only; padding must agree with the DMA driver.
 bool standard(const uint8_t* data,size_t size) {
   if (size<4 || data[0]!=0xff || data[1]!=0xd8) return false;
@@ -112,11 +121,11 @@ bool ImageAccelerator::encodeGray(const uint8_t* gray,uint16_t width,uint16_t he
 #elif FREEINK_S31_IMAGE
   const size_t rawBytes=size_t(width)*height, encodedBytes=rawBytes*4+4096;
   if (!room(rawBytes+encodedBytes,encodedBytes,work_.budget)) { stats_.reason=Reason::Budget; return false; }
-  jpeg_encode_memory_alloc_cfg_t memory{}; memory.buffer_direction=JPEG_ENC_ALLOC_INPUT_BUFFER;
+
   size_t inCapacity=0,outCapacity=0;
-  Buffer input(static_cast<uint8_t*>(jpeg_alloc_encoder_mem(rawBytes,&memory,&inCapacity)),&free);
-  memory.buffer_direction=JPEG_ENC_ALLOC_OUTPUT_BUFFER;
-  Buffer encoded(static_cast<uint8_t*>(jpeg_alloc_encoder_mem(encodedBytes,&memory,&outCapacity)),&free);
+  Buffer input(dmaBuffer(rawBytes,inCapacity),&resources::releaseAligned);
+
+  Buffer encoded(dmaBuffer(encodedBytes,outCapacity),&resources::releaseAligned);
   if (!input || !encoded || inCapacity<rawBytes || outCapacity<encodedBytes) { stats_.reason=Reason::Allocation; return false; }
   stats_.peak_bytes=std::max<uint32_t>(stats_.peak_bytes,inCapacity+outCapacity);
   memcpy(input.get(),gray,rawBytes);
@@ -166,21 +175,24 @@ book::ImageBackend::Result ImageAccelerator::decode(book::BookSource& source,con
       image.width>info.width || image.height>info.height) return declined(Reason::Dimensions);
   if (info.progressive) {
     const auto bytes=ProgressiveJpeg::storeBytes(info.width,info.height);
-    if (!room(bytes,bytes,work_.budget)) return declined(Reason::Budget);
+    if (!room(bytes,bytes,work_.budget)) {stats_.reason=Reason::Budget;return Result::OutOfMemory;}
     ProgressiveContext c; c.work=work_;
     c.scaler.srcW=info.width; c.scaler.srcH=info.height;
     c.scaler.dstW=image.width; c.scaler.dstH=image.height; c.scaler.rowFn=rowFn; c.scaler.user=user;
-    if (!book::initScaler(c.scaler,scratch)) return declined(Reason::Allocation);
+    if (!book::initScaler(c.scaler,scratch)) {stats_.reason=Reason::Allocation;return Result::OutOfMemory;}
     const auto mark=scratch.mark();
     if (c.reader.open(source,entry,scratch)!=book::BookStatus::Ok) return declined(Reason::Format);
     ProgressiveJpeg decoder;
     auto started=micros();
-    if (decoder.begin(ProgressiveContext::read,&c)!=ProgressiveJpeg::Status::Ok) return declined(Reason::Format);
+    const auto opened=decoder.begin(ProgressiveContext::read,&c);
+    if(opened==ProgressiveJpeg::Status::OutOfMemory){stats_.reason=Reason::Allocation;return Result::OutOfMemory;}
+    if (opened!=ProgressiveJpeg::Status::Ok) return declined(Reason::Format);
     scratch.release(mark);
     if (c.reader.open(source,entry,scratch)!=book::BookStatus::Ok) return declined(Reason::Format);
     const auto result=decoder.decode(ProgressiveContext::read,&c,ProgressiveContext::row,&c);
     stats_.decode_us+=uint32_t(micros()-started); stats_.peak_bytes=std::max<uint32_t>(stats_.peak_bytes,bytes);
     if (!proceed() || result==ProgressiveJpeg::Status::Stopped || c.scaler.stopped) return Result::Stopped;
+    if(result==ProgressiveJpeg::Status::OutOfMemory){stats_.reason=Reason::Allocation;return Result::OutOfMemory;}
     if (result!=ProgressiveJpeg::Status::Ok) return declined(Reason::Format);
     ++stats_.progressive; return Result::Complete;
   }
@@ -190,8 +202,8 @@ book::ImageBackend::Result ImageAccelerator::decode(book::BookSource& source,con
   if ((uint32_t(info.width)*info.height)%8 || entry.uncompressedSize>2*1024*1024) return declined(Reason::Dimensions);
   if (!room(entry.uncompressedSize,entry.uncompressedSize,work_.budget)) return declined(Reason::Budget);
   size_t inputCapacity=0;
-  jpeg_decode_memory_alloc_cfg_t memory{}; memory.buffer_direction=JPEG_DEC_ALLOC_INPUT_BUFFER;
-  Buffer input(static_cast<uint8_t*>(jpeg_alloc_decoder_mem(entry.uncompressedSize,&memory,&inputCapacity)),&free);
+
+  Buffer input(dmaBuffer(entry.uncompressedSize,inputCapacity),&resources::releaseAligned);
   if (!input || inputCapacity<entry.uncompressedSize) return declined(Reason::Allocation);
   book::ZipEntryReader reader;
   if (reader.open(source,entry,scratch)!=book::BookStatus::Ok) return declined(Reason::Format);
@@ -214,12 +226,12 @@ book::ImageBackend::Result ImageAccelerator::decode(book::BookSource& source,con
     grayBytes=0;
     if (inputCapacity>work_.budget || !room(rawBytes,rawBytes,work_.budget-inputCapacity)) return declined(Reason::Budget);
   }
-  memory.buffer_direction=JPEG_DEC_ALLOC_OUTPUT_BUFFER; size_t rawCapacity=0;
-  Buffer raw(static_cast<uint8_t*>(jpeg_alloc_decoder_mem(rawBytes,&memory,&rawCapacity)),&free);
+  size_t rawCapacity=0;
+  Buffer raw(dmaBuffer(rawBytes,rawCapacity),&resources::releaseAligned);
   if (!raw || rawCapacity<rawBytes) return declined(Reason::Allocation);
   const size_t alignment=std::max<size_t>(64,esp_cache_get_line_size_by_addr(raw.get()));
   grayBytes=(grayBytes+alignment-1)/alignment*alignment;
-  Buffer converted(grayBytes ? static_cast<uint8_t*>(heap_caps_aligned_alloc(alignment,grayBytes,caps)) : nullptr,&free);
+  Buffer converted(grayBytes ? dmaBuffer(grayBytes,grayBytes) : nullptr,&resources::releaseAligned);
   stats_.peak_bytes=std::max<uint32_t>(stats_.peak_bytes,inputCapacity+rawCapacity+(converted ? grayBytes : 0));
   bool convertedOk=false;
   {

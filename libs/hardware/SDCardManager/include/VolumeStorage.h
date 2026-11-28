@@ -34,6 +34,9 @@ class StorageFile {
   int read();
   size_t write(const void*, size_t);
   bool seekSet(uint64_t);
+  // Optional read-only hint. SdFat can avoid walking the FAT chain for every
+  // backwards glyph seek after verifying a bounded file is contiguous.
+  bool optimizeReadSeeks();
   uint64_t curPosition() const;
   uint64_t fileSize() const;
   uint64_t size() const { return fileSize(); }
@@ -67,6 +70,9 @@ class VolumeStorage {
   bool mount(StorageVolume);
   bool ready(StorageVolume) const;
   bool ready() const { return ready(StorageVolume::Tf) || ready(StorageVolume::Internal); }
+  // Only the S31 LCD + native SDMMC backend is eligible for the separately
+  // admitted read-only prefetch path. Other boards keep exclusive I/O.
+  static bool parallelReadSafe();
   StorageVolume defaultVolume() const;
   StoragePath resolve(const char*) const;
   StorageFile open(const char*, oflag_t = O_RDONLY);

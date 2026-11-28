@@ -75,6 +75,10 @@ RefreshMode toInternal(FreeInkDisplay::RefreshMode m) {
       return RefreshMode::Full;
     case FreeInkDisplay::HALF_REFRESH:
       return RefreshMode::Half;
+    case FreeInkDisplay::TEXT_CLEAN_REFRESH: return RefreshMode::TextClean;
+    case FreeInkDisplay::TEXT_REFRESH: return RefreshMode::Text;
+    case FreeInkDisplay::TEXT_STATUS_REFRESH: return RefreshMode::TextStatus;
+    case FreeInkDisplay::TEXT16_REFRESH: return RefreshMode::Text16;
     default:
       return RefreshMode::Fast;
   }
@@ -258,6 +262,10 @@ void FreeInkDisplay::selectDriver() {
 }
 
 const char* FreeInkDisplay::getControllerName() const { return _driver ? _driver->controllerName() : nullptr; }
+bool FreeInkDisplay::supportsCalibration() const { return _driver && _driver->supportsCalibration(); }
+bool FreeInkDisplay::setCalibration(const DisplayCalibration& value) {
+  return _driver && !refreshBusy() && value.valid() && _driver->setCalibration(value);
+}
 
 void FreeInkDisplay::begin() {
   cancelGrayscalePass();

@@ -6,6 +6,7 @@
 #include FT_MULTIPLE_MASTERS_H
 #include FT_OUTLINE_H
 #include FT_TRUETYPE_TABLES_H
+#include FT_ADVANCES_H
 
 #include <algorithm>
 #include <atomic>
@@ -713,6 +714,27 @@ bool FtFont::lineMetrics26_6(const uint32_t pixelSize26_6, LineMetrics& out) {
 }
 
 int16_t FtFont::advance(const uint32_t codepoint, const uint16_t sizePx, uint8_t) {
+  // Layout uses linearHoriAdvance, not the hinted outline's bounding box.
+  // Read the horizontal metrics table directly when the driver supports it.
+  // Variable fonts without HVAR and other unsupported drivers retain the full
+  // glyph path. Rasterization still validates and loads the actual outline.
+  const auto glyph = glyphId(codepoint);
+  if (face_ && FT_IS_SCALABLE(static_cast<FT_Face>(face_)) &&
+      ensureSize26_6(uint32_t(sizePx) * 64u) && prepareLoad()) {
+    FT_Fixed linear = 0;
+    const auto error = FT_Get_Advance(static_cast<FT_Face>(face_), glyph,
+        FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING | FT_ADVANCE_FLAG_FAST_ONLY, &linear);
+    if (!error) {
+      lastGlyphFailure_ = GlyphFailure::None;
+      lastGlyphError_ = 0;
+      return int16_t(std::clamp<int32_t>(fixed16_16To26_6(linear) >> 6, INT16_MIN, INT16_MAX));
+    }
+    if (error != FT_Err_Unimplemented_Feature) {
+      lastGlyphFailure_ = GlyphFailure::Load;
+      lastGlyphError_ = error;
+      return 0;
+    }
+  }
   GlyphMetrics metrics;
   if (!metrics26_6(codepoint, uint32_t(sizePx) * 64u, metrics)) return 0;
   return int16_t(std::clamp<int32_t>(metrics.advance26_6 >> 6, INT16_MIN, INT16_MAX));

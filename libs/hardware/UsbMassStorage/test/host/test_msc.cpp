@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <USB.h>
 #include <USBMSC.h>
+#include <esp_heap_caps.h>
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -15,8 +16,12 @@ using namespace std::chrono_literals;
 static std::atomic<bool> mounted{false};
 extern "C" bool tud_mounted() { return mounted; }
 extern "C" bool tud_suspended() { return false; }
-extern "C" bool tud_disconnect() { mounted = false; return true; }
-extern "C" bool tud_connect() { return true; }
+extern "C" bool tud_disconnect() { mounted=false; usbPullup=false; detachedMs=0; return true; }
+extern "C" bool tud_connect() {
+  if (FREEINK_DEVICE_METALIO_EINK4_PLUS) assert(usbRoute==LOW && detachedMs>=100 && !usbPullup);
+  usbPullup=true;
+  return true;
+}
 class Disk : public FsBlockDeviceInterface {
  public:
   std::array<uint8_t, 4*4096> bytes{};
@@ -42,9 +47,12 @@ int main() {
   Disk disk;
   UsbMassStorage usb, second;
   assert(!usb.begin(nullptr));
+  heapFail=true;assert(!usb.begin(&disk) && !heapLive);heapFail=false;
   mscBeginOk = false; assert(!usb.begin(&disk) && !media); mscBeginOk = true;
+  assert(!heapLive);
   assert(usbRoute==HIGH);
   usbBeginOk = false; assert(!usb.begin(&disk) && !media); usbBeginOk = true;
+  assert(!heapLive);
   assert(usbRoute==HIGH);
   assert(usb.begin(&disk) && !second.begin(&disk));
   assert(usbRoute==(FREEINK_DEVICE_METALIO_EINK4_PLUS ? LOW : HIGH));
@@ -64,6 +72,8 @@ int main() {
   assert(usb.state() == UsbMassStorageState::IoError);
   assert(readCallback(0, 0, result.data(), 0) == -1);
   usb.end(); assert(!media && readCallback(0, 0, result.data(), 512) == -1);
+  if (FREEINK_DEVICE_METALIO_EINK4_PLUS) assert(settledStorageRoute);
+  assert(!heapLive);
   assert(usbRoute==HIGH);
   assert(usb.begin(&disk)); mounted = true;
   disk.syncOk = false;

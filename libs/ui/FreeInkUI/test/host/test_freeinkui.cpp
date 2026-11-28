@@ -268,6 +268,16 @@ void testRuntimeFontFallback() {
   Source combining(0x0301,0), duplicate(0x0301,9);
   FallbackGlyphSource marks(combining,duplicate);
   CHECK_EQ(marks.advance(0x0301,24),0); CHECK_EQ(duplicate.advanceCalls,0);
+  // Runtime-only slots have no bitmap dot. Ellipses still need measured
+  // advance and visible ink in pagination/loading labels and clipped text.
+  Source ellipsis(0x2026,12);
+  uint8_t pixels[8*40];std::memset(pixels,255,sizeof(pixels));
+  DisplayTarget target(pixels,64,40,8,Orientation::LandscapeCounterClockwise);
+  target.setFont(0,ellipsis,24,28,24);
+  CHECK_EQ(target.measureText(0,"…",{}).width,12);
+  target.text({0,0,64,40},"…",{});
+  bool ink=false;for(auto pixel:pixels)ink|=pixel!=255;
+  CHECK(ink);CHECK(ellipsis.glyphCalls>0);
 }
 
 void testDisplayTargetGray8() {
@@ -3479,7 +3489,9 @@ void testDefaultStyles() {
   CHECK(button.selected.border.kind == PaintKind::None);
   CHECK(button.focused.border.kind == PaintKind::None);
   CHECK(button.active.border.kind == PaintKind::None);
-  CHECK(button.disabled.border.kind == PaintKind::None);
+  CHECK(button.disabled.border.kind == PaintKind::Solid);
+  CHECK(button.disabled.borderWidth == 1);
+  CHECK(button.disabled.foreground.color == Color::DarkGray);
 
   StyleSet row = defaultListRowStyles();
   CHECK(row.normal.border.kind == PaintKind::None);

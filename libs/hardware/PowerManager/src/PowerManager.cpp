@@ -14,6 +14,18 @@
 #endif
 
 namespace freeink {
+bool PowerManager::wokeFromSleep() {
+  return bootCause()==BootCause::Sleep;
+}
+PowerManager::BootCause PowerManager::bootCause() {
+  switch(esp_reset_reason()) {
+    case ESP_RST_DEEPSLEEP: return BootCause::Sleep;
+    case ESP_RST_POWERON:
+    case ESP_RST_BROWNOUT:
+    case ESP_RST_PWR_GLITCH: return BootCause::PowerRecovery;
+    default: return BootCause::Reset;
+  }
+}
 namespace {
 int8_t powerPin() { return BoardConfig::ACTIVE.input.power; }
 bool powerActiveHigh() { return BoardConfig::ACTIVE.input.powerActiveHigh; }

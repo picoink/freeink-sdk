@@ -60,6 +60,18 @@ c++ -std=c++17 $INCLUDES $DEFINES $SANITIZERS \
   -o "$BUILD_DIR/ftfont-render-options-test"
 "$BUILD_DIR/ftfont-render-options-test" "$FONT_FIXTURE"
 
+# Width-only layout must preserve the full glyph path's linear metrics across
+# hinting, synthetic styles and sizes. Optionally exercise the device CJK font.
+# shellcheck disable=SC2086
+c++ -std=c++17 $INCLUDES $DEFINES $SANITIZERS \
+  "$FONT_ROOT/src/FtFont.cpp" "$FONT_ROOT/src/FontAlloc.c" $GSUB_SOURCE \
+  "$SCRIPT_DIR/FtFontAdvanceTest.cpp" "$BUILD_DIR"/ft_*.o \
+  -o "$BUILD_DIR/ftfont-advance-test"
+"$BUILD_DIR/ftfont-advance-test" "$FONT_FIXTURE"
+if [ -n "${FREEINK_FONT_ADVANCE_FIXTURE:-}" ]; then
+  "$BUILD_DIR/ftfont-advance-test" "$FREEINK_FONT_ADVANCE_FIXTURE"
+fi
+
 # An optional real CFF fixture verifies inspection and rendering without
 # committing a font whose redistribution terms are unknown.
 if [ -n "${FREEINK_FONT_CFF_FIXTURE_DIR:-}" ]; then

@@ -2,6 +2,7 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <SDCardManager.h>
+#include <ResourceCoordinator.h>
 #include <unistd.h>
 
 #include <filesystem>
@@ -42,6 +43,25 @@ int main() {
   CHECK(LittleFS.open("/same.txt", FILE_APPEND).write(uint8_t('!')) == 1);
   CHECK(contents(root / "flash/same.txt") == "flash!");
   CHECK(!LittleFS.open("/same.txt", "invalid"));
+
+  // Model the S31 flash guard without hanging a host test indefinitely.
+  using Coordinator=freeink::resources::Coordinator;
+  auto& gate=Coordinator::get();
+  setenv("FREEINK_HOST_CHECK_FLASH_BARRIER","1",1);
+  gate.request(Coordinator::Barrier::Display,true);
+  bool blocked=false;
+  try { flash.seek(0); } catch (const std::runtime_error&) { blocked=true; }
+  CHECK(blocked);
+  gate.request(Coordinator::Barrier::Display,false);
+  {
+    Coordinator::Lease painting(Coordinator::Client::ForegroundIo);
+    CHECK(painting);
+    CHECK(!gate.request(Coordinator::Barrier::Display,true));
+    CHECK(flash.seek(0) && flash.read()=='f');
+  }
+  CHECK(gate.ready());
+  gate.request(Coordinator::Barrier::Display,false);
+  unsetenv("FREEINK_HOST_CHECK_FLASH_BARRIER");
 
   CHECK(LittleFS.mkdir("/dir"));
   CHECK(LittleFS.open("/dir/a", FILE_WRITE).write(uint8_t('a')) == 1);

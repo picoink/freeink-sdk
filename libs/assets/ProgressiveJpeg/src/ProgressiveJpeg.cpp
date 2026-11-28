@@ -4,6 +4,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if __has_include(<ResourceMemory.h>)
+#include <ResourceMemory.h>
+#define FREEINK_PJ_MANAGED 1
+#endif
+
 #if __has_include(<esp_heap_caps.h>)
 #include <esp_heap_caps.h>
 #define FREEINK_PJ_HEAP_CAPS 1
@@ -23,7 +28,9 @@ constexpr uint8_t kNatural[64] = {0,  1,  8,  16, 9,  2,  3,  10, 17, 24, 32, 25
 constexpr uint64_t kMaxStoreBytes = 64ull * 1024 * 1024;
 
 void* allocStore(size_t bytes) {
-#if FREEINK_PJ_HEAP_CAPS
+#if FREEINK_PJ_MANAGED
+  auto* p=resources::Memory::get().allocate(bytes,resources::Category::Transient);if(p)memset(p,0,bytes);return p;
+#elif FREEINK_PJ_HEAP_CAPS
   return heap_caps_calloc(1, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 #else
   return calloc(1, bytes);
@@ -31,7 +38,9 @@ void* allocStore(size_t bytes) {
 }
 
 void freeStore(void* p) {
-#if FREEINK_PJ_HEAP_CAPS
+#if FREEINK_PJ_MANAGED
+  resources::release(p);
+#elif FREEINK_PJ_HEAP_CAPS
   heap_caps_free(p);
 #else
   free(p);
@@ -520,7 +529,7 @@ void ProgressiveJpeg::scan(Reader& r, const Comp* comps, uint8_t ns, const uint8
 
 ProgressiveJpeg::Status ProgressiveJpeg::emit(RowFn rowFn, void* user) {
   const uint32_t stride = static_cast<uint32_t>(_blocksW) * 8;
-  uint8_t* strip = static_cast<uint8_t*>(malloc(stride * 8));
+  uint8_t* strip = static_cast<uint8_t*>(allocStore(stride * 8));
   if (!strip) return Status::OutOfMemory;
   Status status = Status::Ok;
   const uint16_t* qt = _qt[_lumaTq];
@@ -534,7 +543,7 @@ ProgressiveJpeg::Status ProgressiveJpeg::emit(RowFn rowFn, void* user) {
       }
     }
   }
-  free(strip);
+  freeStore(strip);
   return status;
 }
 

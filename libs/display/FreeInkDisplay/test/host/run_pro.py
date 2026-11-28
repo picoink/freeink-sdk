@@ -23,6 +23,7 @@ with tempfile.TemporaryDirectory(prefix="freeink-pro-test-") as directory:
     shutil.copy2(LIB / "include/FreeInkDisplay.h", root / "include/FreeInkDisplay.h")
     shutil.copy2(LIB / "include/GrayscaleCapabilities.h", root / "include/GrayscaleCapabilities.h")
     shutil.copy2(LIB / "include/RefreshMetrics.h", root / "include/RefreshMetrics.h")
+    shutil.copy2(LIB / "include/DisplayCalibration.h", root / "include/DisplayCalibration.h")
     for name in ("Ssd1677Luts.h", "Uc8279X3Luts.h", "UltraChipDirectGrayLuts.h"):
         shutil.copy2(LIB / f"src/lut/{name}", root / f"src/lut/{name}")
     for name in ("Arduino.h", "BoardConfig.h", "SPI.h", "esp_heap_caps.h", "sdkconfig.h"):

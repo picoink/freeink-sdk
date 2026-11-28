@@ -41,6 +41,12 @@ symbols beside the bundled decoder to prevent accidental use of an incompatible
 ESP ROM implementation. The consumer ELF and physical board still need checking
 because host tests do not use the ESP ROM linker script.
 
+The page compositor's Gray8 tests compare all four rotations with an independent
+scalar renderer, using every coverage level, negative bearings, clipping,
+padded rows, overlapping glyphs, synthetic bold and underline. The optimized
+glyph path writes contiguous physical rows, including portrait framebuffers.
+Device response-time measurements belong to the consumer's hardware report.
+
 ## Progressive JPEG
 
 ```sh
@@ -122,6 +128,9 @@ Covers `FtFont::RenderOptions` (every `HintingMode` plus monochrome) against a
 real bundled font, plus a minimal build with none of the three
 `FREEINK_FONT_ENABLE_*` flags set to confirm existing consumers see no change
 in output and unsupported requests are reported rather than silently degraded.
+Also compares width-only advances against full glyph metrics across sizes,
+hinting modes, Latin/CJK characters and synthetic styles. Set
+`FREEINK_FONT_ADVANCE_FIXTURE` to an additional device font to test its metrics.
 
 Covers `FtFont::ligature()`/`ligatureGlyphId()` (GSUB-based) against a real
 bundled font: exact-value assertions for the five standard Latin ligatures,
@@ -132,6 +141,7 @@ invalidation, and a null-pointer safety check on `Gsub::LigatureGlyphId`.
 
 ```sh
 sh libs/network/BleKeyboardHost/test/host/run.sh
+sh libs/network/BleKeyboardHost/test/bluedroid/run.sh
 ```
 
 Compiles `BleKeyboardHost` with `FREEINK_CAP_BLE_HID_HOST=1` against a fake
@@ -139,6 +149,16 @@ NimBLE and FreeRTOS layer, with the connection task on a real thread. Covers
 report decode into key events, auto-reconnect, scanning and teardown order.
 The fake has no radio, so pairing, link timing and memory use still need a
 device.
+
+The Bluedroid suite drives asynchronous GATT discovery, security, report
+subscription and input. It covers scan/open teardown races, timeout cancellation,
+notification flooding and retrying the final host release while retaining PAN.
+The PAN suite also checks both lease-release orders and shared-host failures.
+Neither suite establishes a radio connection. The Bluedroid runner also drives
+the PageTurner worker through switching between two bonds, reconnecting the
+selected peer after a failed switch, delivering press and release edges with
+their source address, rejecting a failed preference write and waiting for the
+current sleep generation. The consuming application tests its button mappings.
 
 ## Frontlight driver
 
@@ -173,12 +193,23 @@ bit-banged panel probe. The checks cover transfer
 sequences, grayscale uploads, refresh lifecycle, and power-state behavior for
 the drivers included in each harness.
 
-EPDiy additionally checks the optional board white-conditioning waveform: known
-full refreshes use it, ordinary grayscale updates restore the normal waveform,
-and a failed refresh still requires the original clear/recovery sequence. Metalio
-Plus reuses its existing full-quality 20-phase white erase plus 48-phase GL16
-reveal. The waveform suite checks every erase pulse stays neutral or drives
-toward white. This does not establish physical residual-image performance.
+EPDiy additionally checks the complete board conditioning waveform: explicit
+full refreshes and every fourteenth reading turn use it, ordinary grayscale
+updates restore the normal waveform, and a failed refresh still requires the
+original clear/recovery sequence. Metalio Plus uses the untrimmed 48-phase GC16
+profile, including both black and white drive on unchanged pixels. The waveform
+suite checks this for all sixteen same-gray transitions, as well as the original
+profile hashes. This does not establish physical residual-image performance.
+
+EPDiy calibration tests compare in-place packed Gray4 translation with an
+independent scalar image for positive/negative odd/even pixel offsets, clipping,
+white exposed strips and allocation canaries, including the 1216 x 684 panel.
+They check inverse touch mapping, invalid/busy refusal, immutable source pixels,
+clean refresh after changing calibration and subsequent GL4 operation. Calibration
+uses the existing PSRAM scan target, with no scratch frame or SRAM row buffer.
+The host backend applies the same physical offset to screenshots and UI hit
+regions. Consumer tests must cover persistence failures and physical edge
+visibility; assembly alignment cannot be diagnosed from a framebuffer alone.
 
 For the board-profile and display-probe regression test, follow the
 [XteinkDetect host instructions](../libs/hardware/XteinkDetect/test/host/README.md).
@@ -283,6 +314,12 @@ zero initialization, preservation on failure and no internal fallback when
 PSRAM is exhausted. The total-capacity query must remain stable as free space
 changes, so font allocation cannot mistake exhaustion for a no-PSRAM board.
 
+The categorized `host_resource_governance` suite replaces the shared optional
+cache budget. It tests category admission, physical reserve, fragmented heaps,
+delta realloc, owner generations, cross-owner release rejection and reclamation.
+Consumers must use matching managed release calls and report unclassified heap
+usage. Physical free-space admission includes unmigrated driver/library blocks.
+
 ```sh
 sh libs/hardware/BoardMetalioEInk4Plus/test/host/run.sh
 ```
@@ -326,6 +363,23 @@ facade: separate TF/internal contents, moves and handle accounting, exclusive
 reservation, remount without formatting, path validation and concurrent callers.
 The host internal directory models file ownership, not FAT/WL flash behavior.
 
+`sh libs/hardware/SDCardManager/test/host/run_internal.sh` exercises the device's
+POSIX internal-file helper against real temporary files: missing files, exclusive
+creation, append after seek, read-only protection, truncation, directory iteration
+and repeated opens. Device internal storage uses descriptors directly and `stat`
+for existence checks; it no longer creates temporary Arduino stdio streams and
+their libc mutexes before reopening the same file. This test does not emulate
+ESP heap pressure or FAT/WL. PicoInk records cold-open and response-time hardware
+validation separately.
+
+PSRAM consumers can call `memory::preferExternalHeap()` after initializing
+boot-critical peripherals. It routes ordinary task-side library allocations to
+PSRAM first; explicit internal/DMA allocations and FreeRTOS stacks/locks keep
+their capability requirements. This avoids the Arduino 4 KiB default-allocation
+threshold exhausting SRAM during concurrent display and content work. The host
+backend does not change its process allocator; actual SRAM headroom and display
+stability must be measured on the device.
+
 The USB MSC suite also compiles `FlashUsbStorage` against a deterministic
 wear-levelling backend. It covers native 4096-byte FAT sectors, partition/bounds
 validation, erase failures and remount persistence. These host checks do not
@@ -355,12 +409,26 @@ also checks unaligned packed difference input, every width from 1 to 1216, and o
 tails. The driver suite injects a failed scan and verifies that automatic retries
 cannot clear or scan the panel again until an explicit resync.
 
-The S31 scheduler preloads 125 rows per 127-slot queue. The CPU servicing the
-LCD/DMA interrupts prepares 7 of every 16 rows, and the other CPU prepares 9;
-neither feeder loses its prefill reserve. The next phase can prepare once both
-feeders finish, while the LCD consumes the current tail. LCD and DMA interrupts
-share a CPU and cancellation waits for their old callbacks before recycling data.
-Other LCD targets retain alternating ownership. EPDiy exposes separate power,
+The row-layout test checks the first and last payload byte of all 684 rows against
+an independent receiver, for both native S31 RGB and legacy dummy-phase layouts.
+S31 uses 304 active bytes for a 1216-pixel panel, with no leading dummy byte.
+The DMA row stride, active width and enabled peripheral phases must agree.
+The fake LCD cannot verify physical start-pulse timing or glass alignment: device
+validation must also inspect all four edges using a known border pattern, after
+clearing any marks left at the old scan position. A correct framebuffer digest
+and successful scan completion alone do not establish physical alignment.
+
+The S31 full-phase scheduler balances row preparation across both CPUs. One
+complete phase fits in the row queues; two immutable PSRAM wire images exchange
+preparation/scan ownership. The next image is packed while the prior image scans,
+without altering the active descriptor chain or completion cursor. This replaces
+the second queued phase within the existing System budget. Direct DMA removes
+the eight-row refill interrupt deadline; a latched hardware EOF still has to
+confirm payload consumption at physical panel completion. The host fake verifies
+overlapping packing, exact phase bytes, small queue capacity and cancellation of
+an already prepared next image. Streaming S31 retains its measured 13:19 feeder
+split. Cancellation waits for old callbacks before recycling data. Other LCD
+targets retain alternating ownership. EPDiy exposes separate power,
 preparation, waveform-cycle, actual scanning and completion timings through
 `RefreshMetrics`; the API contains no ESP-IDF types.
 
@@ -374,8 +442,12 @@ frame before reopening input. The PicoInk surface test distinguishes a new
 successful presentation timestamp from stale success or another failed attempt,
 including an intervening status read.
 
-The LCD clear row is reserved at renderer initialization with internal DMA SRAM
-capabilities and retained until deinitialization (304 bytes on Metalio Plus).
+The LCD clear row is reserved at renderer initialization and retained until
+deinitialization (304 bytes on Metalio Plus). Streaming LCD targets use internal
+DMA SRAM. The S31 full-phase path invokes its callback only while packing on a
+task, so its clear row, 4 KiB waveform table and 304-byte mask now use managed
+PSRAM. These 4704 bytes no longer compete with radio SRAM, without changing the
+System quota. DMA descriptors and interrupt completion metadata stay internal.
 On S31, ordinary `malloc` and `MALLOC_CAP_INTERNAL` may fall back to LP RAM;
 an ISR reading the clear row there missed the bounce-buffer refill interval.
 The pipeline suite now checks cropped black, white and neutral clear pixels,
@@ -383,3 +455,143 @@ buffer ownership across repeated clears, interrupted scans and lost completion.
 Clear failures also reach refresh fault metrics. UBSan findings stop the suite.
 Physical validation is separate: the PicoInk consumer records the LP address,
 refill timings, successful flashing and repeated-boot checks.
+
+## Wake classification
+
+`PowerManager::wokeFromSleep()` identifies a completed deep-sleep boot using the
+deep-sleep reset reason. Power-on and software reset do not count as deep sleep;
+`bootCause()` separately classifies recoverable power events. The
+SDK host backend models this through `wake_from_sleep`; `host_backend` tests
+both states. PicoInk's process-restart integration tests verify consumption of
+one-shot recovery records. These checks and the Metalio firmware build passed
+on 2026-11-24; physical wake classification has not been validated for this change.
+
+## Categorized resource admission
+
+`host_resource_governance` in the stress simulator exercises `ResourceMemory.h`:
+independent category ceilings, two-MiB physical reserve, generation-bearing
+owners, rejected foreign release, incremental realloc/shrink, failure rollback,
+and accounting cleanup. It also occupies unclassified PSRAM directly and checks
+that managed allocations preserve the reserve without consuming internal RAM.
+The header is opt-in; consumers must migrate paired allocation/release calls and
+report unclassified heap usage until their allocation paths are covered.
+
+## Page-pinned glyph storage
+
+The host `host_glyph_pages` test exercises `PageGlyphArena` with two blocks:
+current and candidate page pins, shared glyph references across promotion,
+refusal when all storage is protected, stale-generation rejection, empty glyphs
+and oversized glyph bypass. The arena has fixed metadata and borrows its pixel
+storage from the caller; it does not allocate or scan the heap. Reclamation
+checks at most 64 block descriptors and never overwrites a protected block.
+PicoInk's `document_api` test also floods a 16 KiB font cache and compares the
+held displayed glyph bytes, then checks cached and uncached raster output over
+repeated wraps and font sizes. Target page-turn latency remains a device check.
+
+Resource governance checks distinguish a local category refusal from physical
+exhaustion: the former may evict only that category, while reserve/fragmentation
+failures request global reclamation. The consumer content test exercises reverse
+page prefetch and a transient-image quota refusal with no room for a third frame.
+Device acceptance must include sustained turns in both directions; alternating
+between two pages does not exercise this working set.
+
+
+## S31 compact GL4 and ready-driven power
+
+`python3 libs/hardware/BoardMetalioEInk4Plus/test/host/run_power.py` checks the
+TPS65185 I2C wake minimum, temporary NACKs, elapsed power-good deadlines and
+32-bit clock wrap. The production path waits at least 3 ms before I2C (the
+[TI SLVSAQ8G specification](https://www.ti.com/lit/ds/symlink/tps65185.pdf),
+Figure 2, requires 1.8 ms), then checks both the power-good pin and rail status.
+It preserves voltage, sequence registers, retry power cycles, output-enable
+ordering and refresh-after power-off. The test models readiness and failures;
+it is not an electrical or temperature qualification of the panel.
+
+The LCD suite exhaustively compares the compact 4 KiB pair LUT with scalar
+waveform pixels, including four target gray values, all sixteen old values,
+unchanged-pixel suppression, tail words and fused difference construction.
+It does not reduce waveform stages. Gray8 packing combines quantization and
+original-target preservation; driver tests verify the source remains immutable.
+
+Physical observations are tracked by the PicoInk consumer. A 2026-11-25
+30-turn test on S31 completed without scan faults after the readiness change,
+and the user confirmed normal text and screen appearance. This is a single
+board result, not evidence for all temperatures or supply conditions.
+
+`sh libs/hardware/BoardConfig/test/host/run_metalio_plus.sh` also checks early
+FT6336U reset preparation. `InputManager::prepareBoot()` starts the existing
+10 ms low pulse before storage initialization; `begin()` waits out any remaining
+300 ms high interval before probing. Repeated preparation does not restart the
+clock, and calling `begin()` alone retains the original full wait. No touch
+settling interval is shortened. Input and ordered-queue host suites and the
+Metalio build pass; physical wake timing is recorded by the consumer.
+
+`PowerManager::bootCause()` separates completed deep sleep, power recovery
+(power-on, brownout and power-glitch reset), and other resets. A power-recovery
+cause alone never authorizes automatic application startup: consumers must have
+an unconsumed, validated, durable sleep intent and consume it on durable storage
+before executing application code. The retained-receipt API was removed: an RTC
+consumed flag can disappear on a later power loss and replay an old checkpoint.
+Host backend tests cover every reset category. PicoInk integration tests cover
+long sleep, power recovery, repeated identical handoffs, one-shot consumption,
+explicit shutdown and software/fault reset rejection. Compilation and host tests
+do not establish battery-supply stability; physical evidence is recorded by the
+PicoInk consumer.
+
+`TEXT_CLEAN_REFRESH` retains the complete unknown-panel clear sequence, then draws
+fast text with the selected 24-phase reading waveform. Known-panel cleaning keeps
+the board's existing white-conditioning waveform. UI and high-quality text keep
+16-gray targets. The EPDiy worker test checks initial clearing, waveform selection,
+source immutability and subsequent cleaning. Physical startup timing and optical
+checks remain consumer evidence, separate from these host checks.
+
+## Read-only prefetch during LCD scanning
+
+`host_resource_coordinator` checks separate read-only content admission: display
+may overlap that client, while USB and sleep wait for it to drain. Flash access
+cannot inherit a write lease from read-only work. `host_volumes` checks the scoped
+storage restriction against existing and newly opened handles: TF reads work,
+internal-volume reads, writes, truncation, rename/remove, directory creation and
+mount changes are rejected. The scope is eligible only on the S31 LCD/SDMMC
+backend (and its host model); it is not a promise of safe shared-SPI concurrency.
+PicoInk's `content_tasks` test completes a TF chapter, prepares a neighboring
+frame while the display barrier remains asserted, then transfers the frame under
+the two-frame budget. Actual DMA coexistence and optical quality require hardware
+validation; these host tests cannot certify it.
+
+The EPDiy LCD pipeline host test also replays exactly equal consecutive waveform
+phases from the existing immutable full-phase queues. It verifies every output
+pixel, queue wraparound, both IRQ core assignments, a failure during replay,
+missing completion and recovery. Streaming queues retain normal preparation.
+No drive phase, voltage, scan timing or clear stage is removed. The E0470 GL4
+profile has 14 repeated phases out of 24; no additional framebuffer is allocated.
+
+Consumer hardware trials `1cdf5ed9eb7351cc` and `ba97186e6f706a8e` completed
+distinct-page and alternating turns with zero scan faults; feed work dropped
+from approximately 269/280 ms to 112/114 ms per normal GL4 update. Those are
+measured producer timings, not a claim of the same reduction in panel latency.
+The complete lifecycle/concurrency acceptance remains in PicoInk's validation
+report, including its separately recorded optical confirmation.
+
+`host_resource_governance` also tests lazy recovery of reclaimed shared font-file
+blocks. Recovery may select a smaller cache than originally requested, leaves
+64 KiB of font workspace and respects global/physical reserve admission. A full
+quota reads directly without repeated allocation failures; after pressure is
+released, subsequent reads become cache hits again. `font_workers` additionally
+reclaims the cache from inside a miss callback to check lock and generation safety.
+
+## RISC-V task-local layout
+
+`python3 tools/firmware/test_tls_layout.py` verifies the ELF layout gate.
+Metalio consumers install `post:freeink-sdk/tools/firmware/platformio_tls_gate.py`
+as a PlatformIO extra script and run `check_tls_layout.py firmware.elf` before
+flashing retained binaries. The gate compares PT_TLS against the exact linker
+symbols used by FreeRTOS to copy initialized bytes and zero task-local state.
+
+GCC can emit every zero-initialized task local into `.tbss`. An empty `.tdata`
+then becomes ordinary alignment padding: the FreeRTOS copy base may precede
+PT_TLS by four bytes. A layout-only code change reproduced a nonzero read-only
+storage flag at boot. ResourceMemory places its existing zero-initialized Owner
+slot in a real aligned TLS data section, with no extra per-task bytes. Build
+validation remains necessary if a consumer changes linker scripts or introduces
+larger-alignment task locals. This is separate from TLS network encryption.

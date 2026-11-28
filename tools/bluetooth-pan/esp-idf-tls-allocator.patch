@@ -1,0 +1,57 @@
+--- a/components/mbedtls/esp_crt_bundle/esp_crt_bundle.c
++++ b/components/mbedtls/esp_crt_bundle/esp_crt_bundle.c
+@@ -12,6 +12,7 @@
+ #include "esp_log.h"
+ 
+ #include "mbedtls/pk.h"
++#include "mbedtls/platform.h"
+ #include "mbedtls/oid.h"
+ #include "mbedtls/asn1.h"
+ 
+@@ -520,7 +521,7 @@
+     }
+     // If we found a matching certificate, we need to allocate a new
+     // mbedtls_x509_crt structure and copy the certificate data into it.
+-    mbedtls_x509_crt *new_cert = calloc(1, sizeof(mbedtls_x509_crt));
++    mbedtls_x509_crt *new_cert = mbedtls_calloc(1, sizeof(mbedtls_x509_crt));
+     if (unlikely(new_cert == NULL)) {
+         ESP_LOGE(TAG, "Failed to allocate memory for new certificate");
+         return MBEDTLS_ERR_X509_ALLOC_FAILED;
+@@ -546,7 +547,7 @@
+     if (ret != 0) {
+         ESP_LOGE(TAG, "Failed to parse public key from certificate: %d", ret);
+         mbedtls_x509_crt_free(new_cert);
+-        free(new_cert);
++        mbedtls_free(new_cert);
+         return ret;
+     }
+ 
+@@ -556,24 +557,24 @@
+     if (esp_crt_ref_asn1(child_issuer, parent_subject) != 0) {
+         ESP_LOGE(TAG, "Failed to reference ASN.1 data");
+         mbedtls_x509_crt_free(new_cert);
+-        free(new_cert);
++        mbedtls_free(new_cert);
+         return MBEDTLS_ERR_X509_ALLOC_FAILED;
+     }
+ 
+     child_issuer = child_issuer->next;
+     while (child_issuer != NULL) {
+-        parent_subject->next = calloc(1, sizeof(mbedtls_asn1_named_data));
++        parent_subject->next = mbedtls_calloc(1, sizeof(mbedtls_asn1_named_data));
+         if (parent_subject->next == NULL) {
+             ESP_LOGE(TAG, "Failed to allocate memory for subject node");
+             mbedtls_x509_crt_free(new_cert);
+-            free(new_cert);
++            mbedtls_free(new_cert);
+             return MBEDTLS_ERR_X509_ALLOC_FAILED;
+         }
+         parent_subject = parent_subject->next;
+         if (esp_crt_ref_asn1(child_issuer, parent_subject) != 0) {
+             ESP_LOGE(TAG, "Failed to reference ASN.1 data");
+             mbedtls_x509_crt_free(new_cert);
+-            free(new_cert);
++            mbedtls_free(new_cert);
+             return MBEDTLS_ERR_X509_ALLOC_FAILED;
+         }
+         child_issuer = child_issuer->next;

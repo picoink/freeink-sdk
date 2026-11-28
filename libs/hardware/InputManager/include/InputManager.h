@@ -1,4 +1,5 @@
 #pragma once
+#include <TouchGesture.h>
 #include "OrderedInput.h"
 
 // FreeInk SDK — input abstraction.
@@ -21,6 +22,8 @@
 class InputManager {
  public:
   InputManager();
+  // Optional early boot hook; overlaps board reset settling with storage init.
+  void prepareBoot();
   void begin();
   // A4: stop touch and release the shared I2C bus after all other bus users finish.
   bool prepareForDeepSleep();
@@ -552,9 +555,9 @@ class InputManager {
   static constexpr unsigned long TOUCH_IRQ_PULSE_MS = 120;   // release hold-over after last valid read
   static constexpr unsigned long TOUCH_SAMPLE_DELAY_MS = 8;  // I2C poll cadence
   static constexpr int TOUCH_TAP_SLOP_PX = 28;
-  static constexpr int TOUCH_SWIPE_MIN_PX = 60;
+  static constexpr int TOUCH_SWIPE_MIN_PX = freeink::TouchGesture::swipePixels;
   static constexpr int TOUCH_TAP_RELEASE_SLOP_PX = TOUCH_SWIPE_MIN_PX - 1;
-  static constexpr unsigned long TOUCH_SWIPE_MAX_MS = 700;
+  static constexpr unsigned long TOUCH_SWIPE_MAX_MS = freeink::TouchGesture::swipeMs;
   static constexpr unsigned long TOUCH_MULTI_SWIPE_MAX_MS = 2000;
   static constexpr int TOUCH_MULTI_CONTACT_SEPARATION_SLOP_PX = 45;
   static constexpr int64_t TOUCH_CONTACT_ASSIGNMENT_AMBIGUITY_PX_SQ = 64;

@@ -88,6 +88,13 @@ MCU stack size and ABI differences are not reproduced by the native process.
 
 ## Desktop input semantics
 
+Set `FREEINK_HOST_CHECK_FLASH_BARRIER=1` in integration tests to reject internal
+flash file access that would wait behind the S31 display barrier. The host
+reports an exception instead of blocking forever. Admitted foreground/content
+work can still drain through nested flash reads. This models admission ordering,
+not physical flash timing; consumer cold-font boot and hardware tests remain
+required.
+
 The host backend models all seven Metalio Plus inputs separately: the three
 cover keys (HOME/PREV/NEXT), BOOT, volume up/down and power. Device levels and
 source ownership are merged before producing the firmware button edges. HOME

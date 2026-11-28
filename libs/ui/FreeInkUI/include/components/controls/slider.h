@@ -42,7 +42,7 @@ void slider(Frame<MaxInteractions>& frame, Rect rect, const SliderProps& props) 
   bar.value = props.value;
   bar.max = props.max;
   bar.track = props.track;
-  bar.fill = hasState(state, StateDisabled) ? Paint::dither(Color::LightGray) : props.fill;
+  bar.fill = hasState(state, StateDisabled) ? Paint::solid(Color::DarkGray) : props.fill;
   bar.radius = props.radius;
   progressBar(frame, track, bar);
 
@@ -54,7 +54,7 @@ void slider(Frame<MaxInteractions>& frame, Rect rect, const SliderProps& props) 
   const int16_t travel = content.width > knobW ? static_cast<int16_t>(content.width - knobW) : 0;
   const int16_t knobX = static_cast<int16_t>(content.x + (static_cast<int32_t>(travel) * value) / max);
   Rect knobRect{knobX, static_cast<int16_t>(content.y + (content.height - knobH) / 2), knobW, knobH};
-  frame.target().fill(knobRect, hasState(state, StateDisabled) ? Paint::dither(Color::LightGray) : props.knob,
+  frame.target().fill(knobRect, hasState(state, StateDisabled) ? Paint::solid(Color::DarkGray) : props.knob,
                       props.radius);
   if (props.border.kind != PaintKind::None) frame.target().stroke(knobRect, props.border, 1, props.radius);
 }

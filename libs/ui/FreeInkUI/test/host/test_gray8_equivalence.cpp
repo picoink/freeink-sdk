@@ -5,8 +5,27 @@
 #include <cstdio>
 using namespace freeink::ui;
 int main() {
-  // Independent opaque Gray4 sampler: all levels, odd widths, padded frame
+  // A full coverage ramp must survive the icon bridge as sixteen distinct
+  // luminances. Transparent padding must preserve a non-white background.
+  {
+    const uint8_t coverage[]={0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef,0x00};
+    std::array<uint8_t,18> pixels; pixels.fill(255); pixels[16]=pixels[17]=37;
+    DisplayTarget target(pixels.data(),18,1,18,Orientation::LandscapeCounterClockwise,true);
+    const BitmapRef icon{coverage,17,1,BitmapFormat::Mask4,false};
+    target.bitmap({0,0,17,1},icon,BitmapMode::Center);
+    for (int x=0;x<16;++x) assert(pixels[x]==255-x*17);
+    assert(pixels[16]==37 && pixels[17]==37);
+    // The same mask stays visible on a monochrome target without turning
+    // partial coverage into opaque strokes; 0 and 15 remain exact.
+    std::array<uint8_t,3> mono; mono.fill(255);
+    DisplayTarget monoTarget(mono.data(),18,1,3,Orientation::LandscapeCounterClockwise);
+    monoTarget.bitmap({0,0,17,1},icon,BitmapMode::Center);
+    assert(mono[0]==0xf5 && mono[1]==0x00 && mono[2]==255);
+  }
+  // Independent Gray4 luminance / Mask4 coverage sampler: all levels, odd widths, padded frame
   // rows, clips, scaling, image rotation and display orientation.
+  for (auto format : {BitmapFormat::Gray4, BitmapFormat::Mask4})
+  for (auto color : {Color::Black, Color::White, Color::DarkGray, Color::LightGray, Color::Transparent})
   for (unsigned orientation=0;orientation<4;++orientation) for (unsigned rotation=0;rotation<4;++rotation) {
     uint32_t random=42; auto next=[&]() { random^=random<<13; random^=random>>17; random^=random<<5; return random; };
     for (unsigned n=0;n<200;++n) {
@@ -19,7 +38,7 @@ int main() {
       Rect rect{int16_t(int(next()%70)-8),int16_t(int(next()%70)-8),int16_t(1+next()%60),int16_t(1+next()%60)};
       target.setClipRect(clip);
       const auto rot=Rotation(rotation);
-      target.bitmap(rect,{source.data(),uint16_t(sw),uint16_t(sh),BitmapFormat::Gray4,false},BitmapMode::Stretch,Paint::solid(Color::Black),rot);
+      target.bitmap(rect,{source.data(),uint16_t(sw),uint16_t(sh),format,false},BitmapMode::Stretch,Paint::solid(color),rot);
       const bool transpose=rot==Rotation::CW90 || rot==Rotation::CCW90;
       for (int y=0;y<target.logicalHeight();++y) for (int x=0;x<target.logicalWidth();++x) {
         if (!clip.contains(x,y) || !rect.contains(x,y)) continue;
@@ -36,7 +55,11 @@ int main() {
           case Orientation::LandscapeClockwise: px=72-x; py=52-y; break;
           default: break;
         }
-        expected[py*79+px]=level*17;
+        if (format==BitmapFormat::Gray4) expected[py*79+px]=level*17;
+        else if (color!=Color::Transparent) {
+          const unsigned ink=color==Color::Black ? 0 : color==Color::White ? 255 : color==Color::DarkGray ? 64 : 192;
+          expected[py*79+px]=(ink*level+37*(15-level)+7)/15;
+        }
       }
       assert(actual==expected);
     }

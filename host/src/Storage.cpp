@@ -5,12 +5,14 @@
 #include <unistd.h>
 
 #include <cstring>
+#include <cstdlib>
 #include <filesystem>
 #include <limits>
 
 #include "HostMemory.h"
 #include "LittleFS.h"
 #include "SDCardManager.h"
+#include "ResourceCoordinator.h"
 
 namespace disk = std::filesystem;
 using namespace freeink::host;
@@ -27,6 +29,12 @@ struct StorageVolume {
   bool ready() const { return mounted && !failed(); }
   void cost(size_t bytes) const {
     if (!std::strcmp(faultPrefix, "sd")) ioCost(bytes);
+    else if (std::getenv("FREEINK_HOST_CHECK_FLASH_BARRIER")) {
+      auto& coordinator=freeink::resources::Coordinator::get();
+      if (!coordinator.beginFlash())
+        throw std::runtime_error("Internal flash access blocked by display barrier");
+      coordinator.end(freeink::resources::Coordinator::Client::Flash);
+    }
   }
   void unmount() {
     mounted = false;
